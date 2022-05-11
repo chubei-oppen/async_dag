@@ -27,7 +27,7 @@ pub enum Node<'a> {
     Curry(DynCurry<'a>),
     /// A running node.
     ///
-    /// The future is stored elsewhere. Client should not see this state.
+    /// The [`Curry`] is called and result future is stored elsewhere and perhaps running.
     Running,
     /// A result from a completed [`Task`].
     Value(DynAny),
@@ -110,14 +110,13 @@ impl<'a> Graph<'a> {
 
     /// Progresses the whole task graph as much as possible.
     ///
-    /// Returns the result [`Graph`] and any error that happens during running.
-    ///
     /// Client can check the error, modify the [`Graph`] accordingly (TODO), and try running again.
-    pub async fn run(self) -> (Graph<'a>, Option<IncorrectDependency>) {
-        let graph = self.0;
-        let runner = Runner::new(graph);
-        let (graph, error) = runner.run().await;
-        (Self(graph), error)
+    ///
+    /// If the returned future is dropped before completion, some tasks will be cancelled and forever lost.
+    /// Corresponding [`Node`] will be set to [`Node::Running`].
+    pub async fn run(&mut self) -> Result<(), IncorrectDependency> {
+        let mut runner = Runner::new(&mut self.0);
+        runner.run().await
     }
 
     fn make_node<Args, Out, T: IntoTask<'a, Args, Out>>(task: T) -> Node<'a> {

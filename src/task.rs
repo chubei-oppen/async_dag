@@ -23,34 +23,38 @@ impl<T: 'static + Clone> Message for T {
 }
 
 /// An async task.
-pub trait Task<'a> {
+pub trait TryTask<'a> {
     /// Tuple of inputs.
     type Inputs: Tuple;
 
-    /// Output.
-    type Output: Message;
+    /// Successful output.
+    type Ok: Message;
+
+    /// Error output.
+    type Err: 'a;
 
     /// Output future.
-    type Future: Future<Output = Self::Output> + Send + 'a;
+    type Future: Future<Output = Result<Self::Ok, Self::Err>> + Send + 'a;
 
     /// Runs the task and gets a future.
     fn run(self, inputs: Self::Inputs) -> Self::Future;
 }
 
-/// Conversion into a [`Task`].
-pub trait IntoTask<'a, Args, Out> {
-    /// The [`Task`] type.
-    type Task: Task<'a, Output = Out> + 'a;
+/// Conversion into a [`TryTask`].
+pub trait IntoTryTask<'a, Args, Ok, Err> {
+    /// The [`TryTask`] type.
+    type Task: TryTask<'a, Ok = Ok, Err = Err> + 'a;
 
     /// The conversion.
     fn into_task(self) -> Self::Task;
 }
 
-impl<'a, Fn, Out, Fut> IntoTask<'a, (), Out> for Fn
+impl<'a, Fn, Ok, Err, Fut> IntoTryTask<'a, (), Ok, Err> for Fn
 where
     Fn: FnOnce() -> Fut + 'a,
-    Out: Message,
-    Fut: Future<Output = Out> + Send + 'a,
+    Ok: Message,
+    Err: 'a,
+    Fut: Future<Output = Result<Ok, Err>> + Send + 'a,
 {
     type Task = FnOnceTask<Fn, Fut, ()>;
 
@@ -59,11 +63,12 @@ where
     }
 }
 
-impl<'a, Fn, Out, Fut, I1> IntoTask<'a, (I1,), Out> for Fn
+impl<'a, Fn, Ok, Err, Fut, I1> IntoTryTask<'a, (I1,), Ok, Err> for Fn
 where
     Fn: FnOnce(I1) -> Fut + 'a,
-    Out: Message,
-    Fut: Future<Output = Out> + Send + 'a,
+    Ok: Message,
+    Err: 'a,
+    Fut: Future<Output = Result<Ok, Err>> + Send + 'a,
     I1: Message,
 {
     type Task = FnOnceTask<Fn, Fut, (I1,)>;
@@ -73,11 +78,12 @@ where
     }
 }
 
-impl<'a, Fn, Out, Fut, I1, I2> IntoTask<'a, (I1, I2), Out> for Fn
+impl<'a, Fn, Ok, Err, Fut, I1, I2> IntoTryTask<'a, (I1, I2), Ok, Err> for Fn
 where
     Fn: FnOnce(I1, I2) -> Fut + 'a,
-    Out: Message,
-    Fut: Future<Output = Out> + Send + 'a,
+    Ok: Message,
+    Err: 'a,
+    Fut: Future<Output = Result<Ok, Err>> + Send + 'a,
     I1: Message,
     I2: Message,
 {
@@ -88,7 +94,7 @@ where
     }
 }
 
-/// A [Task] for types that implement [FnOnce].
+/// A [`TryTask`] for types that implement [`FnOnce`].
 pub struct FnOnceTask<Fn, Fut, Args> {
     function: Fn,
     fut: PhantomData<Fut>,
@@ -105,45 +111,51 @@ impl<Fn, Fut, Args> FnOnceTask<Fn, Fut, Args> {
     }
 }
 
-impl<'a, Fn, Out, Fut> Task<'a> for FnOnceTask<Fn, Fut, ()>
+impl<'a, Fn, Ok, Err, Fut> TryTask<'a> for FnOnceTask<Fn, Fut, ()>
 where
     Fn: FnOnce() -> Fut,
-    Out: Message,
-    Fut: Future<Output = Out> + Send + 'a,
+    Ok: Message,
+    Err: 'a,
+    Fut: Future<Output = Result<Ok, Err>> + Send + 'a,
 {
     type Inputs = ();
-    type Output = Out;
+    type Ok = Ok;
+    type Err = Err;
     type Future = Fut;
     fn run(self, _: Self::Inputs) -> Self::Future {
         (self.function)()
     }
 }
 
-impl<'a, Fn, Out, Fut, I1> Task<'a> for FnOnceTask<Fn, Fut, (I1,)>
+impl<'a, Fn, Ok, Err, Fut, I1> TryTask<'a> for FnOnceTask<Fn, Fut, (I1,)>
 where
     Fn: FnOnce(I1) -> Fut,
-    Out: Message,
-    Fut: Future<Output = Out> + Send + 'a,
+    Ok: Message,
+    Err: 'a,
+    Fut: Future<Output = Result<Ok, Err>> + Send + 'a,
     I1: Message,
 {
     type Inputs = (I1,);
-    type Output = Out;
+    type Ok = Ok;
+    type Err = Err;
     type Future = Fut;
     fn run(self, inputs: Self::Inputs) -> Self::Future {
         (self.function)(inputs.0)
     }
 }
 
-impl<'a, Fn, Out, Fut, I1, I2> Task<'a> for FnOnceTask<Fn, Fut, (I1, I2)>
+impl<'a, Fn, Ok, Err, Fut, I1, I2> TryTask<'a> for FnOnceTask<Fn, Fut, (I1, I2)>
 where
     Fn: FnOnce(I1, I2) -> Fut,
-    Out: Message,
-    Fut: Future<Output = Out> + Send + 'a,
+    Ok: Message,
+    Err: 'a,
+    Fut: Future<Output = Result<Ok, Err>> + Send + 'a,
     I1: Message,
     I2: Message,
 {
     type Inputs = (I1, I2);
-    type Output = Out;
+    type Ok = Ok;
+    type Err = Err;
     type Future = Fut;
     fn run(self, inputs: Self::Inputs) -> Self::Future {
         (self.function)(inputs.0, inputs.1)

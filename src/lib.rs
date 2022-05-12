@@ -8,23 +8,23 @@ pub mod tuple;
 
 use curry::CurriedTask;
 pub use curry::Curry;
-pub use runner::IncorrectDependency;
+pub use runner::GraphError;
 use runner::Runner;
-pub use task::IntoTask;
+pub use task::IntoTryTask;
 pub use task::Message;
-pub use task::Task;
+pub use task::TryTask;
 use tuple::DynAny;
 use tuple::TupleIndex;
 
 /// Type eraser of [`Curry`].
-pub type DynCurry<'a> = Box<dyn Curry<'a> + 'a>;
+pub type DynCurry<'a, Err> = Box<dyn Curry<'a, Err> + 'a>;
 
 /// Node type.
 ///
 /// A node is either a [`Curry`], running, or the [`Curry`]'s awaited calling result.
-pub enum Node<'a> {
+pub enum Node<'a, Err> {
     /// A [`Curry`].
-    Curry(DynCurry<'a>),
+    Curry(DynCurry<'a, Err>),
     /// A running node.
     ///
     /// The [`Curry`] is called and result future is stored elsewhere and perhaps running.
@@ -43,13 +43,13 @@ pub type NodeIndex = daggy::NodeIndex;
 pub type Edge = TupleIndex;
 
 /// An async task DAG.
-pub struct Graph<'a>(daggy::Dag<Node<'a>, Edge>);
+pub struct Graph<'a, Err: 'a>(daggy::Dag<Node<'a, Err>, Edge>);
 
 /// An error returned by the [Graph::add_dependency] method in the case that adding
 /// an dependency would have caused the graph to cycle.
 pub type WouldCycle = daggy::WouldCycle<Edge>;
 
-impl<'a> Graph<'a> {
+impl<'a, Err: 'a> Graph<'a, Err> {
     /// Creates an empty [`Graph`].
     pub fn new() -> Self {
         Self(daggy::Dag::new())
@@ -58,7 +58,7 @@ impl<'a> Graph<'a> {
     /// Converts `self` into an iterator of [`Node`]s.
     ///
     /// Client should use this method and previous returned [`NodeIndex`]s to retrive the graph running result.
-    pub fn into_nodes(self) -> impl Iterator<Item = Node<'a>> {
+    pub fn into_nodes(self) -> impl Iterator<Item = Node<'a, Err>> {
         self.0
             .into_graph()
             .into_nodes_edges()
@@ -70,7 +70,7 @@ impl<'a> Graph<'a> {
     /// Adds a task without specifying its dependencies.
     ///
     /// Returns the [`NodeIndex`] representing this task.
-    pub fn add_task<Args, Out, T: IntoTask<'a, Args, Out>>(&mut self, task: T) -> NodeIndex {
+    pub fn add_task<Args, Ok, T: IntoTryTask<'a, Args, Ok, Err>>(&mut self, task: T) -> NodeIndex {
         self.0.add_node(Self::make_node(task))
     }
 
@@ -79,7 +79,7 @@ impl<'a> Graph<'a> {
     /// Returns the [`NodeIndex`] representing the added task.
     ///
     /// This is more efficient than [`Graph::add_task`] then [`Graph::add_dependency`].
-    pub fn add_dependent_task<Args, Out, T: IntoTask<'a, Args, Out>>(
+    pub fn add_dependent_task<Args, Ok, T: IntoTryTask<'a, Args, Ok, Err>>(
         &mut self,
         child: NodeIndex,
         task: T,
@@ -114,20 +114,20 @@ impl<'a> Graph<'a> {
     ///
     /// If the returned future is dropped before completion, some tasks will be cancelled and forever lost.
     /// Corresponding [`Node`] will be set to [`Node::Running`].
-    pub async fn run(&mut self) -> Result<(), IncorrectDependency> {
+    pub async fn run(&mut self) -> Result<(), GraphError<Err>> {
         let mut runner = Runner::new(&mut self.0);
         runner.run().await
     }
 
-    fn make_node<Args, Out, T: IntoTask<'a, Args, Out>>(task: T) -> Node<'a> {
+    fn make_node<Args, Ok, T: IntoTryTask<'a, Args, Ok, Err>>(task: T) -> Node<'a, Err> {
         let task = task.into_task();
         let curry = CurriedTask::new(task);
         Node::Curry(Box::new(curry))
     }
 }
 
-impl<'a> Default for Graph<'a> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
+// impl<'a> Default for Graph<'a> {
+//     fn default() -> Self {
+//         Self::new()
+//     }
+// }

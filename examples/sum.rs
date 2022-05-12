@@ -1,15 +1,15 @@
 use async_dag::*;
 use futures::executor::block_on;
-use std::any::Any;
+use std::{any::Any, convert::Infallible};
 
-async fn sum(lhs: i32, rhs: i32) -> i32 {
-    lhs + rhs
+async fn sum(lhs: i32, rhs: i32) -> Result<i32, Infallible> {
+    Ok(lhs + rhs)
 }
 
-fn add_dependent_task(graph: &mut Graph, depth: u8, child: NodeIndex) {
+fn add_dependent_task(graph: &mut Graph<Infallible>, depth: u8, child: NodeIndex) {
     if depth == 0 {
-        graph.add_dependent_task(child, || async { 1i32 });
-        graph.add_dependent_task(child, || async { 1i32 });
+        graph.add_dependent_task(child, || async { Ok(1i32) });
+        graph.add_dependent_task(child, || async { Ok(1i32) });
     } else {
         let lhs = graph.add_dependent_task(child, sum);
         add_dependent_task(graph, depth - 1, lhs);

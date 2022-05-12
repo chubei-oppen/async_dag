@@ -10,6 +10,8 @@ use daggy::petgraph::Direction;
 use daggy::Dag;
 use futures::future::select_all;
 use futures::FutureExt;
+use std::error::Error;
+use std::fmt::Display;
 use std::future::Future;
 use std::mem::swap;
 use std::task::Poll;
@@ -25,7 +27,7 @@ pub struct IncorrectDependency {
     pub child: NodeIndex,
 }
 
-impl std::fmt::Display for IncorrectDependency {
+impl Display for IncorrectDependency {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("IncorrectDependency")
             .field("kind", &self.kind)
@@ -35,15 +37,41 @@ impl std::fmt::Display for IncorrectDependency {
     }
 }
 
-impl std::error::Error for IncorrectDependency {}
+impl Error for IncorrectDependency {}
 
-struct RunningNode<'a> {
-    index: NodeIndex,
-    future: TaskFuture<'a>,
+#[derive(Debug)]
+/// Client error or dependency error.
+pub enum GraphError<Err> {
+    /// The client error.
+    ClientError(Err),
+    /// The dependency error.
+    DependencyError(IncorrectDependency),
 }
 
-impl<'a> Future for RunningNode<'a> {
-    type Output = (NodeIndex, DynMessage);
+impl<Err: std::fmt::Debug> Display for GraphError<Err> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            GraphError::ClientError(error) => f
+                .debug_tuple("GraphError::ClientError")
+                .field(error)
+                .finish(),
+            GraphError::DependencyError(error) => f
+                .debug_tuple("GraphError::DependencyError")
+                .field(error)
+                .finish(),
+        }
+    }
+}
+
+impl<Err: std::fmt::Debug> Error for GraphError<Err> {}
+
+struct RunningNode<'a, Err> {
+    index: NodeIndex,
+    future: TaskFuture<'a, Err>,
+}
+
+impl<'a, Err> Future for RunningNode<'a, Err> {
+    type Output = (NodeIndex, Result<DynMessage, Err>);
 
     fn poll(
         mut self: std::pin::Pin<&mut Self>,
@@ -57,7 +85,7 @@ impl<'a> Future for RunningNode<'a> {
 }
 
 // Puts `node` to running if it contains a ready [Curry], doesn't change it otherwise.
-fn call_node<'a>(node: &mut Node<'a>) -> Option<TaskFuture<'a>> {
+fn call_node<'a, Err>(node: &mut Node<'a, Err>) -> Option<TaskFuture<'a, Err>> {
     let mut temp = Node::Running;
     swap(node, &mut temp);
     if let Node::Curry(curry) = temp {
@@ -74,20 +102,20 @@ fn call_node<'a>(node: &mut Node<'a>) -> Option<TaskFuture<'a>> {
 }
 
 /// The async DAG driver algorithm.
-pub struct Runner<'task, 'graph> {
+pub struct Runner<'task, 'graph, Err> {
     // We only modify node weights inside `node_graph`, don't change its structure.
-    node_graph: &'graph mut Dag<Node<'task>, Edge>,
+    node_graph: &'graph mut Dag<Node<'task, Err>, Edge>,
     // `edge_graph` has the same structure as `node_graph`,
     // so we can access connection information and modify node weights simutaneously.
     edge_graph: Dag<(), Edge>,
-    running: Vec<RunningNode<'task>>,
+    running: Vec<RunningNode<'task, Err>>,
 }
 
-impl<'task, 'graph> Runner<'task, 'graph> {
+impl<'task, 'graph, Err> Runner<'task, 'graph, Err> {
     /// Creates a new runner from a [Graph].
     ///
     /// If dropped before running completes, some tasks will be cancelled and forever lost.
-    pub fn new(graph: &'graph mut Dag<Node<'task>, Edge>) -> Self {
+    pub fn new(graph: &'graph mut Dag<Node<'task, Err>, Edge>) -> Self {
         let mut running = vec![];
 
         for index in 0..graph.node_count() {
@@ -109,8 +137,9 @@ impl<'task, 'graph> Runner<'task, 'graph> {
 
     /// Runs the algorithm.
     ///
-    /// If the returned future is dropped before completion, some tasks will be cancelled and forever lost.
-    pub async fn run(&mut self) -> Result<(), IncorrectDependency> {
+    /// If the returned future is dropped before completion or client error happens,
+    /// some tasks will be cancelled and forever lost.
+    pub async fn run(&mut self) -> Result<(), GraphError<Err>> {
         while !self.running.is_empty() {
             self.step().await?;
         }
@@ -120,12 +149,22 @@ impl<'task, 'graph> Runner<'task, 'graph> {
     /// Polls until one running node is completed.
     ///
     /// Curries dependent nodes and returns early on error.
-    async fn step(&mut self) -> Result<(), IncorrectDependency> {
+    async fn step(&mut self) -> Result<(), GraphError<Err>> {
+        // Swap out `self.running` for `select_all`.
         let mut running = vec![];
         swap(&mut self.running, &mut running);
-        let ((node_index, output), _, running) = select_all(running).await;
+
+        // If client error happens, return early and drop running futures.
+        let ((node_index, result), _, running) = select_all(running).await;
+        let output = match result {
+            Err(error) => return Err(GraphError::ClientError(error)),
+            Ok(output) => output,
+        };
+
+        // Assign back to `self.running`.
         self.running = running;
 
+        // Traverse outgoing edges of completed node.
         for edge in self
             .edge_graph
             .edges_directed(node_index, Direction::Outgoing)
@@ -143,7 +182,7 @@ impl<'task, 'graph> Runner<'task, 'graph> {
                         parent: edge.source(),
                         child: child_index,
                     };
-                    return Err(error);
+                    return Err(GraphError::DependencyError(error));
                 }
             }
 

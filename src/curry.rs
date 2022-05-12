@@ -1,18 +1,19 @@
 use crate::task::Message;
-use crate::task::Task;
+use crate::task::TryTask;
 use crate::tuple::InsertResult;
 use crate::tuple::TakeError;
 use crate::tuple::Tuple;
 use crate::tuple::TupleOption;
 use futures::future::BoxFuture;
 use futures::FutureExt;
+use futures::TryFutureExt;
 use std::any::Any;
 
 pub type DynMessage = Box<dyn Message>;
-pub type TaskFuture<'a> = BoxFuture<'a, DynMessage>;
+pub type TaskFuture<'a, Err> = BoxFuture<'a, Result<DynMessage, Err>>;
 
 /// [`Curry`] describes the process of currying and finally calling.
-pub trait Curry<'a> {
+pub trait Curry<'a, Err> {
     /// If the inner task's inputs has been populated and becomes ready for running.
     fn ready(&self) -> bool;
 
@@ -22,16 +23,16 @@ pub trait Curry<'a> {
     fn curry(&mut self, index: u8, value: Box<dyn Any>) -> InsertResult;
 
     /// Consumes the inner task and inputs and returns a future of the output value.
-    fn call(self: Box<Self>) -> Result<TaskFuture<'a>, TakeError>;
+    fn call(self: Box<Self>) -> Result<TaskFuture<'a, Err>, TakeError>;
 }
 
 /// [`CurriedTask`] holds a task and its inputs and tracks if all inputs are ready.
-pub struct CurriedTask<'a, T: Task<'a>> {
+pub struct CurriedTask<'a, Err, T: TryTask<'a, Err = Err>> {
     task: T,
     inputs: <T::Inputs as Tuple>::Option,
 }
 
-impl<'a, T: Task<'a>> CurriedTask<'a, T> {
+impl<'a, Err, T: TryTask<'a, Err = Err>> CurriedTask<'a, Err, T> {
     /// Creates a [CurriedTask] from a task and no inputs.
     pub fn new(task: T) -> Self {
         CurriedTask {
@@ -45,7 +46,7 @@ fn make_any<T: Message>(t: T) -> DynMessage {
     Box::new(t)
 }
 
-impl<'a, T: Task<'a>> Curry<'a> for CurriedTask<'a, T> {
+impl<'a, Err, T: TryTask<'a, Err = Err>> Curry<'a, Err> for CurriedTask<'a, Err, T> {
     fn ready(&self) -> bool {
         self.inputs.first_none().is_none()
     }
@@ -54,11 +55,11 @@ impl<'a, T: Task<'a>> Curry<'a> for CurriedTask<'a, T> {
         self.inputs.insert(index, value)
     }
 
-    fn call(self: Box<Self>) -> Result<BoxFuture<'a, DynMessage>, TakeError> {
+    fn call(self: Box<Self>) -> Result<TaskFuture<'a, Err>, TakeError> {
         let CurriedTask { task, mut inputs } = *self;
         let inputs = inputs.take()?;
         let future = task.run(inputs);
-        let future = future.map(make_any);
+        let future = future.map_ok(make_any);
         Ok(future.boxed())
     }
 }

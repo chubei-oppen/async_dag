@@ -1,6 +1,8 @@
 //! Utility structs and traits for manipulating tuples and tuple of [`Option`]s.
 
+use crate::any::type_info;
 use crate::any::DynAny;
+use crate::any::TypeInfo;
 use std::any::{type_name, Any, TypeId};
 
 /// Type used for indexing a [`TupleOption`].
@@ -65,6 +67,11 @@ pub trait TupleOption<T>: Default {
     /// Length of the tuple.
     const LEN: TupleIndex;
 
+    /// [`TypeId`] and name of the type at `index`.
+    ///
+    /// Returns [`None`] if `index` is out of range.
+    fn type_info(index: TupleIndex) -> Option<TypeInfo>;
+
     /// Returns index of the first element that is [`None`].
     fn first_none(&self) -> Option<TupleIndex>;
 
@@ -80,7 +87,14 @@ pub trait TupleOption<T>: Default {
 }
 
 impl TupleOption<()> for () {
-    const LEN: u8 = 0;
+    const LEN: TupleIndex = 0;
+
+    fn type_info(index: TupleIndex) -> Option<TypeInfo> {
+        #[allow(clippy::match_single_binding)]
+        match index {
+            _ => None,
+        }
+    }
 
     fn first_none(&self) -> Option<TupleIndex> {
         None
@@ -89,24 +103,31 @@ impl TupleOption<()> for () {
     fn insert(&mut self, index: TupleIndex, value: DynAny) -> InsertResult {
         #[allow(clippy::match_single_binding)]
         match index {
-            _ => {
-                return Err(InsertError {
-                    kind: InsertErrorKind::OutOfRange,
-                    value: value.into_any(),
-                })
-            }
+            _ => Err(InsertError {
+                kind: InsertErrorKind::OutOfRange,
+                value: value.into_any(),
+            }),
         }
-        #[allow(unreachable_code)]
-        Ok(())
     }
 
     fn take(&mut self) -> Result<(), TakeError> {
-        Ok(())
+        match self.first_none() {
+            Some(index) => Err(TakeError { index }),
+            None => Ok(()),
+        }
     }
 }
 
 impl<T0: Any> TupleOption<(T0,)> for (std::option::Option<T0>,) {
-    const LEN: u8 = 1;
+    const LEN: TupleIndex = 1;
+
+    fn type_info(index: TupleIndex) -> Option<TypeInfo> {
+        #[allow(clippy::match_single_binding)]
+        match index {
+            0 => Some(type_info::<T0>()),
+            _ => None,
+        }
+    }
 
     fn first_none(&self) -> Option<TupleIndex> {
         if self.0.is_none() {
@@ -119,26 +140,23 @@ impl<T0: Any> TupleOption<(T0,)> for (std::option::Option<T0>,) {
         #[allow(clippy::match_single_binding)]
         match index {
             0 => match Box::<dyn Any>::downcast::<T0>(value.into_any()) {
-                Ok(t) => self.0 = Some(*t),
-                Err(value) => {
-                    return Err(InsertError {
-                        kind: InsertErrorKind::TypeMismatch {
-                            expected: TypeId::of::<T0>(),
-                            expected_name: type_name::<T0>(),
-                        },
-                        value,
-                    });
+                Ok(t) => {
+                    self.0 = Some(*t);
+                    Ok(())
                 }
+                Err(value) => Err(InsertError {
+                    kind: InsertErrorKind::TypeMismatch {
+                        expected: TypeId::of::<T0>(),
+                        expected_name: type_name::<T0>(),
+                    },
+                    value,
+                }),
             },
-            _ => {
-                return Err(InsertError {
-                    kind: InsertErrorKind::OutOfRange,
-                    value: value.into_any(),
-                })
-            }
+            _ => Err(InsertError {
+                kind: InsertErrorKind::OutOfRange,
+                value: value.into_any(),
+            }),
         }
-        #[allow(unreachable_code)]
-        Ok(())
     }
 
     fn take(&mut self) -> Result<(T0,), TakeError> {
@@ -152,7 +170,16 @@ impl<T0: Any> TupleOption<(T0,)> for (std::option::Option<T0>,) {
 impl<T0: Any, T1: Any> TupleOption<(T0, T1)>
     for (std::option::Option<T0>, std::option::Option<T1>)
 {
-    const LEN: u8 = 2;
+    const LEN: TupleIndex = 2;
+
+    fn type_info(index: TupleIndex) -> Option<TypeInfo> {
+        #[allow(clippy::match_single_binding)]
+        match index {
+            0 => Some(type_info::<T0>()),
+            1 => Some(type_info::<T1>()),
+            _ => None,
+        }
+    }
 
     fn first_none(&self) -> Option<TupleIndex> {
         if self.0.is_none() {

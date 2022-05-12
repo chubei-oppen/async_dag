@@ -1,92 +1,18 @@
-use super::Edge;
-use super::Node;
-use super::NodeIndex;
+use crate::any::type_info;
 use crate::any::DynAny;
 use crate::curry::TaskFuture;
-use crate::tuple::InsertErrorKind;
-use crate::tuple::TupleIndex;
+use crate::graph::Edge;
+use crate::graph::Node;
+use crate::graph::NodeIndex;
 use daggy::petgraph::visit::EdgeRef;
 use daggy::petgraph::visit::IntoEdgesDirected;
 use daggy::petgraph::Direction;
 use daggy::Dag;
 use futures::future::select_all;
 use futures::FutureExt;
-use std::any::TypeId;
-use std::error::Error;
-use std::fmt::Display;
 use std::future::Future;
 use std::mem::swap;
 use std::task::Poll;
-
-/// The [`DependencyError`] kind.
-#[derive(Debug)]
-pub enum DependencyErrorKind {
-    /// Output from `parent` does not match `child`'s expected type.
-    TypeMismatch {
-        /// The expected type's [`TypeId`], for programmatic use.
-        expected: TypeId,
-        /// The expected type's name, human readable.
-        expected_name: &'static str,
-        /// The actual output type's name, human readable.
-        actual_name: &'static str,
-    },
-    /// `index` of the dependency is greater than or equal to `child`'s task's number of inputs.
-    OutOfRange {
-        /// The `child`'s task's number of inputs.
-        len: TupleIndex,
-    },
-}
-
-#[derive(Debug)]
-/// One of the dependency setup is incorrect.
-pub struct DependencyError {
-    /// The depended node index.
-    pub parent: NodeIndex,
-    /// The dependent node index.
-    pub child: NodeIndex,
-    /// The dependency index.
-    pub index: Edge,
-    /// The error kind.
-    pub kind: DependencyErrorKind,
-}
-
-impl Display for DependencyError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("DependencyError")
-            .field("kind", &self.kind)
-            .field("parent", &self.parent)
-            .field("child", &self.child)
-            .finish()
-    }
-}
-
-impl Error for DependencyError {}
-
-#[derive(Debug)]
-/// Client error or dependency error.
-pub enum GraphError<Err> {
-    /// The client error.
-    ClientError(Err),
-    /// The dependency error.
-    DependencyError(DependencyError),
-}
-
-impl<Err: std::fmt::Debug> Display for GraphError<Err> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            GraphError::ClientError(error) => f
-                .debug_tuple("GraphError::ClientError")
-                .field(error)
-                .finish(),
-            GraphError::DependencyError(error) => f
-                .debug_tuple("GraphError::DependencyError")
-                .field(error)
-                .finish(),
-        }
-    }
-}
-
-impl<Err: std::fmt::Debug> Error for GraphError<Err> {}
 
 struct RunningNode<'a, Err> {
     index: NodeIndex,
@@ -109,17 +35,20 @@ impl<'a, Err> Future for RunningNode<'a, Err> {
 
 // Puts `node` to running if it contains a ready [Curry], doesn't change it otherwise.
 fn call_node<'a, Err>(node: &mut Node<'a, Err>) -> Option<TaskFuture<'a, Err>> {
-    let mut temp = Node::Running;
-    swap(node, &mut temp);
-    if let Node::Curry(curry) = temp {
+    // Make a placeholder and swap `node` out.
+    let mut owned_node = Node::Running(type_info::<()>());
+    swap(node, &mut owned_node);
+
+    if let Node::Curry(curry) = owned_node {
         if curry.ready() {
+            *node = Node::Running(curry.output_type_info());
             Some(curry.call().unwrap())
         } else {
             *node = Node::Curry(curry);
             None
         }
     } else {
-        *node = temp;
+        *node = owned_node;
         None
     }
 }
@@ -137,6 +66,7 @@ pub struct Runner<'task, 'graph, Err> {
 impl<'task, 'graph, Err> Runner<'task, 'graph, Err> {
     /// Creates a new runner from a [Graph].
     ///
+    /// The `graph` must have been type checked.
     /// If dropped before running completes, some tasks will be cancelled and forever lost.
     pub fn new(graph: &'graph mut Dag<Node<'task, Err>, Edge>) -> Self {
         let mut running = vec![];
@@ -162,7 +92,7 @@ impl<'task, 'graph, Err> Runner<'task, 'graph, Err> {
     ///
     /// If the returned future is dropped before completion or client error happens,
     /// some tasks will be cancelled and forever lost.
-    pub async fn run(&mut self) -> Result<(), GraphError<Err>> {
+    pub async fn run(&mut self) -> Result<(), Err> {
         while !self.running.is_empty() {
             self.step().await?;
         }
@@ -172,17 +102,14 @@ impl<'task, 'graph, Err> Runner<'task, 'graph, Err> {
     /// Polls until one running node is completed.
     ///
     /// Curries dependent nodes and returns early on error.
-    async fn step(&mut self) -> Result<(), GraphError<Err>> {
+    async fn step(&mut self) -> Result<(), Err> {
         // Swap out `self.running` for `select_all`.
         let mut running = vec![];
         swap(&mut self.running, &mut running);
 
         // If client error happens, return early and drop running futures.
         let ((node_index, result), _, running) = select_all(running).await;
-        let output = match result {
-            Err(error) => return Err(GraphError::ClientError(error)),
-            Ok(output) => output,
-        };
+        let output = result?;
 
         // Assign back to `self.running`.
         self.running = running;
@@ -197,30 +124,7 @@ impl<'task, 'graph, Err> Runner<'task, 'graph, Err> {
 
             if let Node::Curry(curry) = child_node {
                 let input_index = *edge.weight();
-                if let Err(error) = curry.curry(input_index, output.clone()) {
-                    // Save output and return error.
-                    let error = match error.kind {
-                        InsertErrorKind::TypeMismatch {
-                            expected,
-                            expected_name,
-                        } => DependencyErrorKind::TypeMismatch {
-                            expected,
-                            expected_name,
-                            actual_name: (*output).type_name(),
-                        },
-                        InsertErrorKind::OutOfRange => DependencyErrorKind::OutOfRange {
-                            len: curry.num_inputs(),
-                        },
-                    };
-                    let error = DependencyError {
-                        kind: error,
-                        parent: edge.source(),
-                        child: child_index,
-                        index: input_index,
-                    };
-                    *self.node_graph.node_weight_mut(node_index).unwrap() = Node::Value(output);
-                    return Err(GraphError::DependencyError(error));
-                }
+                curry.curry(input_index, output.clone()).unwrap();
             }
 
             if let Some(future) = call_node(child_node) {

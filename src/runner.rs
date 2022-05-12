@@ -3,33 +3,56 @@ use super::Node;
 use super::NodeIndex;
 use crate::any::DynAny;
 use crate::curry::TaskFuture;
-pub use crate::tuple::InsertErrorKind;
+use crate::tuple::InsertErrorKind;
+use crate::tuple::TupleIndex;
 use daggy::petgraph::visit::EdgeRef;
 use daggy::petgraph::visit::IntoEdgesDirected;
 use daggy::petgraph::Direction;
 use daggy::Dag;
 use futures::future::select_all;
 use futures::FutureExt;
+use std::any::TypeId;
 use std::error::Error;
 use std::fmt::Display;
 use std::future::Future;
 use std::mem::swap;
 use std::task::Poll;
 
+/// The [`DependencyError`] kind.
+#[derive(Debug)]
+pub enum DependencyErrorKind {
+    /// Output from `parent` does not match `child`'s expected type.
+    TypeMismatch {
+        /// The expected type's [`TypeId`], for programmatic use.
+        expected: TypeId,
+        /// The expected type's name, human readable.
+        expected_name: &'static str,
+        /// The actual output type's name, human readable.
+        actual_name: &'static str,
+    },
+    /// `index` of the dependency is greater than or equal to `child`'s task's number of inputs.
+    OutOfRange {
+        /// The `child`'s task's number of inputs.
+        len: TupleIndex,
+    },
+}
+
 #[derive(Debug)]
 /// One of the dependency setup is incorrect.
-pub struct IncorrectDependency {
-    /// The error kind.
-    pub kind: InsertErrorKind,
+pub struct DependencyError {
     /// The depended node index.
     pub parent: NodeIndex,
     /// The dependent node index.
     pub child: NodeIndex,
+    /// The dependency index.
+    pub index: Edge,
+    /// The error kind.
+    pub kind: DependencyErrorKind,
 }
 
-impl Display for IncorrectDependency {
+impl Display for DependencyError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("IncorrectDependency")
+        f.debug_struct("DependencyError")
             .field("kind", &self.kind)
             .field("parent", &self.parent)
             .field("child", &self.child)
@@ -37,7 +60,7 @@ impl Display for IncorrectDependency {
     }
 }
 
-impl Error for IncorrectDependency {}
+impl Error for DependencyError {}
 
 #[derive(Debug)]
 /// Client error or dependency error.
@@ -45,7 +68,7 @@ pub enum GraphError<Err> {
     /// The client error.
     ClientError(Err),
     /// The dependency error.
-    DependencyError(IncorrectDependency),
+    DependencyError(DependencyError),
 }
 
 impl<Err: std::fmt::Debug> Display for GraphError<Err> {
@@ -173,14 +196,29 @@ impl<'task, 'graph, Err> Runner<'task, 'graph, Err> {
             let child_node = self.node_graph.node_weight_mut(child_index).unwrap();
 
             if let Node::Curry(curry) = child_node {
-                if let Err(error) = curry.curry(*edge.weight(), output.clone()) {
+                let input_index = *edge.weight();
+                if let Err(error) = curry.curry(input_index, output.clone()) {
                     // Save output and return error.
-                    *self.node_graph.node_weight_mut(node_index).unwrap() = Node::Value(output);
-                    let error = IncorrectDependency {
-                        kind: error.kind,
+                    let error = match error.kind {
+                        InsertErrorKind::TypeMismatch {
+                            expected,
+                            expected_name,
+                        } => DependencyErrorKind::TypeMismatch {
+                            expected,
+                            expected_name,
+                            actual_name: (*output).type_name(),
+                        },
+                        InsertErrorKind::OutOfRange => DependencyErrorKind::OutOfRange {
+                            len: curry.num_inputs(),
+                        },
+                    };
+                    let error = DependencyError {
+                        kind: error,
                         parent: edge.source(),
                         child: child_index,
+                        index: input_index,
                     };
+                    *self.node_graph.node_weight_mut(node_index).unwrap() = Node::Value(output);
                     return Err(GraphError::DependencyError(error));
                 }
             }

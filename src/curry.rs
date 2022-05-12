@@ -4,6 +4,7 @@ use crate::task::TryTask;
 use crate::tuple::InsertResult;
 use crate::tuple::TakeError;
 use crate::tuple::Tuple;
+use crate::tuple::TupleIndex;
 use crate::tuple::TupleOption;
 use futures::future::BoxFuture;
 use futures::FutureExt;
@@ -13,6 +14,9 @@ pub type TaskFuture<'a, Err> = BoxFuture<'a, Result<DynAny, Err>>;
 
 /// [`Curry`] describes the process of currying and finally calling.
 pub trait Curry<'a, Err> {
+    /// The number of inputs of the original task.
+    fn num_inputs(&self) -> TupleIndex;
+
     /// If the inner task's inputs has been populated and becomes ready for running.
     fn ready(&self) -> bool;
 
@@ -46,6 +50,10 @@ fn make_any<T: NamedAny>(t: T) -> DynAny {
 }
 
 impl<'a, Err, T: TryTask<'a, Err = Err>> Curry<'a, Err> for CurriedTask<'a, Err, T> {
+    fn num_inputs(&self) -> TupleIndex {
+        <T::Inputs as Tuple>::Option::LEN
+    }
+
     fn ready(&self) -> bool {
         self.inputs.first_none().is_none()
     }

@@ -5,14 +5,15 @@ mod curry;
 mod node;
 mod runner;
 mod task;
-pub mod tuple;
+mod tuple;
 
 pub use any::DynAny;
 pub use any::NamedAny;
 use curry::CurriedTask;
 pub use curry::Curry;
+pub use runner::DependencyError;
+pub use runner::DependencyErrorKind;
 pub use runner::GraphError;
-pub use runner::IncorrectDependency;
 use runner::Runner;
 pub use task::IntoTryTask;
 pub use task::TryTask;
@@ -131,5 +132,73 @@ impl<'a, Err: 'a> Graph<'a, Err> {
 impl<'a, Err> Default for Graph<'a, Err> {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use futures::executor::block_on;
+    use std::{any::Any, convert::Infallible};
+
+    use crate::runner::DependencyErrorKind;
+
+    use super::*;
+
+    #[test]
+    fn test_diamond_shape_dependency() {
+        let mut graph: Graph<Infallible> = Graph::new();
+
+        let root = graph.add_task(|lhs: i32, rhs: i32| async move { Ok(lhs + rhs) });
+        let lhs = graph.add_dependent_task(root, |v: i32| async move { Ok(v) });
+        let rhs = graph.add_dependent_task(root, |v: i32| async move { Ok(v) });
+        let input = graph.add_dependent_task(lhs, || async move { Ok(1) });
+        graph.add_dependency(rhs, input).unwrap();
+
+        block_on(graph.run()).unwrap();
+
+        let result = graph.into_nodes().nth(root.index()).unwrap();
+        let result = match result {
+            Node::Value(value) => value,
+            _ => panic!("Expecting value"),
+        };
+        let result = Box::<dyn Any + 'static>::downcast::<i32>(result.into_any()).unwrap();
+        assert_eq!(*result, 2);
+    }
+
+    #[test]
+    fn test_client_error() {
+        let mut graph = Graph::new();
+        graph.add_task(|| async { Result::<(), ()>::Err(()) });
+        let error = block_on(graph.run()).unwrap_err();
+        match error {
+            GraphError::ClientError(_) => (),
+            _ => panic!("Expecting client error"),
+        }
+    }
+
+    #[test]
+    fn test_type_mismatch_error() {
+        let mut graph: Graph<'_, Infallible> = Graph::new();
+        let child = graph.add_task(|_: i32| async { Ok(()) });
+        let parent = graph.add_dependent_task(child, || async { Ok(1.0f32) });
+        let error = block_on(graph.run()).unwrap_err();
+        let error = match error {
+            GraphError::ClientError(_) => panic!("Expecting dependency error"),
+            GraphError::DependencyError(error) => error,
+        };
+        assert_eq!(error.parent, parent);
+        assert_eq!(error.child, child);
+        assert_eq!(error.index, 0);
+        let (expected_name, actual_name) = match error.kind {
+            DependencyErrorKind::TypeMismatch {
+                expected_name,
+                actual_name,
+                ..
+            } => (expected_name, actual_name),
+            DependencyErrorKind::OutOfRange { .. } => panic!("Expecting type mismatch error"),
+        };
+        // rustc can change the names, but I doubt `i32` and `f32` will be missing in the name.
+        assert!(expected_name.contains("i32"));
+        assert!(actual_name.contains("f32"));
     }
 }

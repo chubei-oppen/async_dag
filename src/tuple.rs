@@ -20,22 +20,13 @@ pub struct InsertError {
 pub enum InsertErrorKind {
     /// The inserted value's type is not the expected one.
     TypeMismatch {
-        /// The mismatched input's index.
-        index: TupleIndex,
         /// The expected type's [`TypeId`].
         expected: TypeId,
         /// The expected type's name.
         expected_name: &'static str,
-        /// The actual type's name.
-        actual_name: &'static str,
     },
     /// The inserting index is out of range.
-    OutOfRange {
-        /// Length of the [`TupleOption`].
-        len: TupleIndex,
-        /// The inserting index.
-        index: TupleIndex,
-    },
+    OutOfRange,
 }
 
 impl std::fmt::Display for InsertError {
@@ -71,6 +62,9 @@ impl std::error::Error for TakeError {}
 
 /// Implemented for all [`Sized`] + `'static` tuple of [`Option`]s.
 pub trait TupleOption<T>: Default {
+    /// Length of the tuple.
+    const LEN: TupleIndex;
+
     /// Returns index of the first element that is [`None`].
     fn first_none(&self) -> Option<TupleIndex>;
 
@@ -86,19 +80,18 @@ pub trait TupleOption<T>: Default {
 }
 
 impl TupleOption<()> for () {
+    const LEN: u8 = 0;
+
     fn first_none(&self) -> Option<TupleIndex> {
         None
     }
 
     fn insert(&mut self, index: TupleIndex, value: DynAny) -> InsertResult {
-        // `*value` is necessary so we don't get the name of the `Box`.
-        #[allow(unused_variables)]
-        let actual_name = (*value).type_name();
         #[allow(clippy::match_single_binding)]
         match index {
             _ => {
                 return Err(InsertError {
-                    kind: InsertErrorKind::OutOfRange { len: 1, index },
+                    kind: InsertErrorKind::OutOfRange,
                     value: value.into_any(),
                 })
             }
@@ -113,6 +106,8 @@ impl TupleOption<()> for () {
 }
 
 impl<T0: Any> TupleOption<(T0,)> for (std::option::Option<T0>,) {
+    const LEN: u8 = 1;
+
     fn first_none(&self) -> Option<TupleIndex> {
         if self.0.is_none() {
             return Some(0);
@@ -121,9 +116,6 @@ impl<T0: Any> TupleOption<(T0,)> for (std::option::Option<T0>,) {
     }
 
     fn insert(&mut self, index: TupleIndex, value: DynAny) -> InsertResult {
-        // `*value` is necessary so we don't get the name of the `Box`.
-        #[allow(unused_variables)]
-        let actual_name = (*value).type_name();
         #[allow(clippy::match_single_binding)]
         match index {
             0 => match Box::<dyn Any>::downcast::<T0>(value.into_any()) {
@@ -131,10 +123,8 @@ impl<T0: Any> TupleOption<(T0,)> for (std::option::Option<T0>,) {
                 Err(value) => {
                     return Err(InsertError {
                         kind: InsertErrorKind::TypeMismatch {
-                            index: 0,
                             expected: TypeId::of::<T0>(),
                             expected_name: type_name::<T0>(),
-                            actual_name,
                         },
                         value,
                     });
@@ -142,7 +132,7 @@ impl<T0: Any> TupleOption<(T0,)> for (std::option::Option<T0>,) {
             },
             _ => {
                 return Err(InsertError {
-                    kind: InsertErrorKind::OutOfRange { len: 1, index },
+                    kind: InsertErrorKind::OutOfRange,
                     value: value.into_any(),
                 })
             }
@@ -162,6 +152,8 @@ impl<T0: Any> TupleOption<(T0,)> for (std::option::Option<T0>,) {
 impl<T0: Any, T1: Any> TupleOption<(T0, T1)>
     for (std::option::Option<T0>, std::option::Option<T1>)
 {
+    const LEN: u8 = 2;
+
     fn first_none(&self) -> Option<TupleIndex> {
         if self.0.is_none() {
             return Some(0);
@@ -173,9 +165,6 @@ impl<T0: Any, T1: Any> TupleOption<(T0, T1)>
     }
 
     fn insert(&mut self, index: TupleIndex, value: DynAny) -> InsertResult {
-        // `*value` is necessary so we don't get the name of the `Box`.
-        #[allow(unused_variables)]
-        let actual_name = (*value).type_name();
         #[allow(clippy::match_single_binding)]
         match index {
             0 => match Box::<dyn Any>::downcast::<T0>(value.into_any()) {
@@ -183,10 +172,8 @@ impl<T0: Any, T1: Any> TupleOption<(T0, T1)>
                 Err(value) => {
                     return Err(InsertError {
                         kind: InsertErrorKind::TypeMismatch {
-                            index: 0,
                             expected: TypeId::of::<T0>(),
                             expected_name: type_name::<T0>(),
-                            actual_name,
                         },
                         value,
                     });
@@ -197,10 +184,8 @@ impl<T0: Any, T1: Any> TupleOption<(T0, T1)>
                 Err(value) => {
                     return Err(InsertError {
                         kind: InsertErrorKind::TypeMismatch {
-                            index: 1,
                             expected: TypeId::of::<T1>(),
                             expected_name: type_name::<T1>(),
-                            actual_name,
                         },
                         value,
                     });
@@ -208,7 +193,7 @@ impl<T0: Any, T1: Any> TupleOption<(T0, T1)>
             },
             _ => {
                 return Err(InsertError {
-                    kind: InsertErrorKind::OutOfRange { len: 1, index },
+                    kind: InsertErrorKind::OutOfRange,
                     value: value.into_any(),
                 })
             }
@@ -250,15 +235,10 @@ mod tests {
     fn test_mismatch_type_name() {
         let mut option: (Option<i32>,) = (None,);
         let error = option.insert(0, Box::new(0.0f32)).unwrap_err();
-        let (expected_name, actual_name) = match error.kind {
-            InsertErrorKind::TypeMismatch {
-                expected_name,
-                actual_name,
-                ..
-            } => (expected_name, actual_name),
+        let expected_name = match error.kind {
+            InsertErrorKind::TypeMismatch { expected_name, .. } => expected_name,
             _ => panic!("Expecting TypeMismatch"),
         };
         assert!(expected_name.contains("i32"));
-        assert!(actual_name.contains("f32"));
     }
 }

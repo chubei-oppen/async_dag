@@ -7,4 +7,5 @@ edition = "2021"
 
 [dependencies]
 daggy = "0.8.0"
+dyn-clone = "1.0.5"
 futures = "0.3.21"

@@ -1,7 +1,7 @@
 use super::Edge;
 use super::Node;
 use super::NodeIndex;
-use crate::curry::DynMessage;
+use crate::any::DynAny;
 use crate::curry::TaskFuture;
 pub use crate::tuple::InsertErrorKind;
 use daggy::petgraph::visit::EdgeRef;
@@ -71,7 +71,7 @@ struct RunningNode<'a, Err> {
 }
 
 impl<'a, Err> Future for RunningNode<'a, Err> {
-    type Output = (NodeIndex, Result<DynMessage, Err>);
+    type Output = (NodeIndex, Result<DynAny, Err>);
 
     fn poll(
         mut self: std::pin::Pin<&mut Self>,
@@ -173,10 +173,9 @@ impl<'task, 'graph, Err> Runner<'task, 'graph, Err> {
             let child_node = self.node_graph.node_weight_mut(child_index).unwrap();
 
             if let Node::Curry(curry) = child_node {
-                if let Err(error) = curry.curry(*edge.weight(), output.clone_any()) {
+                if let Err(error) = curry.curry(*edge.weight(), output.clone()) {
                     // Save output and return error.
-                    *self.node_graph.node_weight_mut(node_index).unwrap() =
-                        Node::Value(output.into_any());
+                    *self.node_graph.node_weight_mut(node_index).unwrap() = Node::Value(output);
                     let error = IncorrectDependency {
                         kind: error.kind,
                         parent: edge.source(),
@@ -194,7 +193,7 @@ impl<'task, 'graph, Err> Runner<'task, 'graph, Err> {
             }
         }
 
-        *self.node_graph.node_weight_mut(node_index).unwrap() = Node::Value(output.into_any());
+        *self.node_graph.node_weight_mut(node_index).unwrap() = Node::Value(output);
 
         Ok(())
     }

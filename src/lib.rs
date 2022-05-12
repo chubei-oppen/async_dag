@@ -1,19 +1,21 @@
 use daggy::petgraph::Direction;
 
+mod any;
 mod curry;
 mod node;
 mod runner;
 mod task;
 pub mod tuple;
 
+pub use any::DynAny;
+pub use any::NamedAny;
 use curry::CurriedTask;
 pub use curry::Curry;
 pub use runner::GraphError;
+pub use runner::IncorrectDependency;
 use runner::Runner;
 pub use task::IntoTryTask;
-pub use task::Message;
 pub use task::TryTask;
-use tuple::DynAny;
 use tuple::TupleIndex;
 
 /// Type eraser of [`Curry`].
@@ -29,7 +31,7 @@ pub enum Node<'a, Err> {
     ///
     /// The [`Curry`] is called and result future is stored elsewhere and perhaps running.
     Running,
-    /// A result from a completed [`Task`].
+    /// A successful output from a completed [`TryTask`].
     Value(DynAny),
 }
 
@@ -126,8 +128,8 @@ impl<'a, Err: 'a> Graph<'a, Err> {
     }
 }
 
-// impl<'a> Default for Graph<'a> {
-//     fn default() -> Self {
-//         Self::new()
-//     }
-// }
+impl<'a, Err> Default for Graph<'a, Err> {
+    fn default() -> Self {
+        Self::new()
+    }
+}

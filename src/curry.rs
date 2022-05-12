@@ -1,4 +1,5 @@
-use crate::task::Message;
+use crate::any::DynAny;
+use crate::any::NamedAny;
 use crate::task::TryTask;
 use crate::tuple::InsertResult;
 use crate::tuple::TakeError;
@@ -7,10 +8,8 @@ use crate::tuple::TupleOption;
 use futures::future::BoxFuture;
 use futures::FutureExt;
 use futures::TryFutureExt;
-use std::any::Any;
 
-pub type DynMessage = Box<dyn Message>;
-pub type TaskFuture<'a, Err> = BoxFuture<'a, Result<DynMessage, Err>>;
+pub type TaskFuture<'a, Err> = BoxFuture<'a, Result<DynAny, Err>>;
 
 /// [`Curry`] describes the process of currying and finally calling.
 pub trait Curry<'a, Err> {
@@ -20,7 +19,7 @@ pub trait Curry<'a, Err> {
     /// Inserts a input to the inner task, i.e. currying.
     ///
     /// `self` is unchanged on error.
-    fn curry(&mut self, index: u8, value: Box<dyn Any>) -> InsertResult;
+    fn curry(&mut self, index: u8, value: DynAny) -> InsertResult;
 
     /// Consumes the inner task and inputs and returns a future of the output value.
     fn call(self: Box<Self>) -> Result<TaskFuture<'a, Err>, TakeError>;
@@ -42,7 +41,7 @@ impl<'a, Err, T: TryTask<'a, Err = Err>> CurriedTask<'a, Err, T> {
     }
 }
 
-fn make_any<T: Message>(t: T) -> DynMessage {
+fn make_any<T: NamedAny>(t: T) -> DynAny {
     Box::new(t)
 }
 
@@ -51,7 +50,7 @@ impl<'a, Err, T: TryTask<'a, Err = Err>> Curry<'a, Err> for CurriedTask<'a, Err,
         self.inputs.first_none().is_none()
     }
 
-    fn curry(&mut self, index: u8, value: Box<dyn Any>) -> InsertResult {
+    fn curry(&mut self, index: u8, value: DynAny) -> InsertResult {
         self.inputs.insert(index, value)
     }
 

@@ -25,7 +25,7 @@ fn main() {
     block_on(graph.run()).unwrap();
     let result = graph.into_nodes().nth(root.index()).unwrap();
     if let Node::Value(result) = result {
-        let result: Box<i32> = Box::<dyn Any + 'static>::downcast(result).unwrap();
+        let result: Box<i32> = Box::<dyn Any + 'static>::downcast(result.into_any()).unwrap();
         println!("Result: {}", *result);
     } else {
         unreachable!();

@@ -1,9 +1,7 @@
 //! Utility structs and traits for manipulating tuples and tuple of [`Option`]s.
 
+use crate::any::DynAny;
 use std::any::{type_name, Any, TypeId};
-
-/// Type eraser used for inserting to a [`TupleOption`].
-pub type DynAny = Box<dyn Any>;
 
 /// Type used for indexing a [`TupleOption`].
 pub type TupleIndex = u8;
@@ -14,7 +12,7 @@ pub struct InsertError {
     /// The error kind.
     pub kind: InsertErrorKind,
     /// The value that was inserted when this error happens.
-    pub value: DynAny,
+    pub value: Box<dyn Any>,
 }
 
 /// The [`InsertError`] kind.
@@ -27,7 +25,9 @@ pub enum InsertErrorKind {
         /// The expected type's [`TypeId`].
         expected: TypeId,
         /// The expected type's name.
-        name: &'static str,
+        expected_name: &'static str,
+        /// The actual type's name.
+        actual_name: &'static str,
     },
     /// The inserting index is out of range.
     OutOfRange {
@@ -91,10 +91,20 @@ impl TupleOption<()> for () {
     }
 
     fn insert(&mut self, index: TupleIndex, value: DynAny) -> InsertResult {
-        Err(InsertError {
-            kind: InsertErrorKind::OutOfRange { len: 0, index },
-            value,
-        })
+        // `*value` is necessary so we don't get the name of the `Box`.
+        #[allow(unused_variables)]
+        let actual_name = (*value).type_name();
+        #[allow(clippy::match_single_binding)]
+        match index {
+            _ => {
+                return Err(InsertError {
+                    kind: InsertErrorKind::OutOfRange { len: 1, index },
+                    value: value.into_any(),
+                })
+            }
+        }
+        #[allow(unreachable_code)]
+        Ok(())
     }
 
     fn take(&mut self) -> Result<(), TakeError> {
@@ -111,15 +121,20 @@ impl<T0: Any> TupleOption<(T0,)> for (std::option::Option<T0>,) {
     }
 
     fn insert(&mut self, index: TupleIndex, value: DynAny) -> InsertResult {
+        // `*value` is necessary so we don't get the name of the `Box`.
+        #[allow(unused_variables)]
+        let actual_name = (*value).type_name();
+        #[allow(clippy::match_single_binding)]
         match index {
-            0 => match Box::<dyn Any>::downcast::<T0>(value) {
+            0 => match Box::<dyn Any>::downcast::<T0>(value.into_any()) {
                 Ok(t) => self.0 = Some(*t),
                 Err(value) => {
                     return Err(InsertError {
                         kind: InsertErrorKind::TypeMismatch {
                             index: 0,
                             expected: TypeId::of::<T0>(),
-                            name: type_name::<T0>(),
+                            expected_name: type_name::<T0>(),
+                            actual_name,
                         },
                         value,
                     });
@@ -128,10 +143,11 @@ impl<T0: Any> TupleOption<(T0,)> for (std::option::Option<T0>,) {
             _ => {
                 return Err(InsertError {
                     kind: InsertErrorKind::OutOfRange { len: 1, index },
-                    value,
+                    value: value.into_any(),
                 })
             }
         }
+        #[allow(unreachable_code)]
         Ok(())
     }
 
@@ -157,28 +173,34 @@ impl<T0: Any, T1: Any> TupleOption<(T0, T1)>
     }
 
     fn insert(&mut self, index: TupleIndex, value: DynAny) -> InsertResult {
+        // `*value` is necessary so we don't get the name of the `Box`.
+        #[allow(unused_variables)]
+        let actual_name = (*value).type_name();
+        #[allow(clippy::match_single_binding)]
         match index {
-            0 => match Box::<dyn Any>::downcast::<T0>(value) {
+            0 => match Box::<dyn Any>::downcast::<T0>(value.into_any()) {
                 Ok(t) => self.0 = Some(*t),
                 Err(value) => {
                     return Err(InsertError {
                         kind: InsertErrorKind::TypeMismatch {
                             index: 0,
                             expected: TypeId::of::<T0>(),
-                            name: type_name::<T0>(),
+                            expected_name: type_name::<T0>(),
+                            actual_name,
                         },
                         value,
                     });
                 }
             },
-            1 => match Box::<dyn Any>::downcast::<T1>(value) {
+            1 => match Box::<dyn Any>::downcast::<T1>(value.into_any()) {
                 Ok(t) => self.1 = Some(*t),
                 Err(value) => {
                     return Err(InsertError {
                         kind: InsertErrorKind::TypeMismatch {
                             index: 1,
                             expected: TypeId::of::<T1>(),
-                            name: type_name::<T1>(),
+                            expected_name: type_name::<T1>(),
+                            actual_name,
                         },
                         value,
                     });
@@ -187,10 +209,11 @@ impl<T0: Any, T1: Any> TupleOption<(T0, T1)>
             _ => {
                 return Err(InsertError {
                     kind: InsertErrorKind::OutOfRange { len: 1, index },
-                    value,
+                    value: value.into_any(),
                 })
             }
         }
+        #[allow(unreachable_code)]
         Ok(())
     }
 
@@ -217,4 +240,25 @@ impl<T0: Any> Tuple for (T0,) {
 
 impl<T0: Any, T1: Any> Tuple for (T0, T1) {
     type Option = (std::option::Option<T0>, std::option::Option<T1>);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_mismatch_type_name() {
+        let mut option: (Option<i32>,) = (None,);
+        let error = option.insert(0, Box::new(0.0f32)).unwrap_err();
+        let (expected_name, actual_name) = match error.kind {
+            InsertErrorKind::TypeMismatch {
+                expected_name,
+                actual_name,
+                ..
+            } => (expected_name, actual_name),
+            _ => panic!("Expecting TypeMismatch"),
+        };
+        assert!(expected_name.contains("i32"));
+        assert!(actual_name.contains("f32"));
+    }
 }

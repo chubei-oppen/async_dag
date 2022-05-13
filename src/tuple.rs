@@ -196,6 +196,82 @@ impl<T0: Any, T1: Any> TupleOption<(T0, T1)> for (Option<T0>, Option<T1>) {
     }
 }
 
+impl<T0: Any, T1: Any, T2: Any> TupleOption<(T0, T1, T2)> for (Option<T0>, Option<T1>, Option<T2>) {
+    fn first_none(&self) -> Option<TupleIndex> {
+        if self.0.is_none() {
+            return Some(0);
+        }
+        if self.1.is_none() {
+            return Some(1);
+        }
+        if self.2.is_none() {
+            return Some(1);
+        }
+        None
+    }
+
+    fn insert(&mut self, index: TupleIndex, value: DynAny) -> InsertResult {
+        #[allow(clippy::match_single_binding)]
+        match index {
+            0 => match Box::<dyn Any>::downcast::<T0>(value.into_any()) {
+                Ok(t) => self.0 = Some(*t),
+                Err(value) => {
+                    return Err(InsertError {
+                        kind: InsertErrorKind::TypeMismatch {
+                            expected: TypeId::of::<T0>(),
+                            expected_name: type_name::<T0>(),
+                        },
+                        value,
+                    });
+                }
+            },
+            1 => match Box::<dyn Any>::downcast::<T1>(value.into_any()) {
+                Ok(t) => self.1 = Some(*t),
+                Err(value) => {
+                    return Err(InsertError {
+                        kind: InsertErrorKind::TypeMismatch {
+                            expected: TypeId::of::<T1>(),
+                            expected_name: type_name::<T1>(),
+                        },
+                        value,
+                    });
+                }
+            },
+            2 => match Box::<dyn Any>::downcast::<T2>(value.into_any()) {
+                Ok(t) => self.2 = Some(*t),
+                Err(value) => {
+                    return Err(InsertError {
+                        kind: InsertErrorKind::TypeMismatch {
+                            expected: TypeId::of::<T2>(),
+                            expected_name: type_name::<T2>(),
+                        },
+                        value,
+                    });
+                }
+            },
+            _ => {
+                return Err(InsertError {
+                    kind: InsertErrorKind::OutOfRange,
+                    value: value.into_any(),
+                })
+            }
+        }
+        #[allow(unreachable_code)]
+        Ok(())
+    }
+
+    fn take(&mut self) -> Result<(T0, T1, T2), TakeError> {
+        match self.first_none() {
+            Some(index) => Err(TakeError { index }),
+            None => Ok((
+                self.0.take().unwrap(),
+                self.1.take().unwrap(),
+                self.2.take().unwrap(),
+            )),
+        }
+    }
+}
+
 /// Implemented for all [`Sized`] + `'static` tuples.
 pub trait Tuple: Sized {
     /// The corresponding tuple of [`Option`]s.
@@ -247,6 +323,22 @@ impl<T0: Any, T1: Any> Tuple for (T0, T1) {
         match index {
             0 => Some(TypeInfo::of::<T0>()),
             1 => Some(TypeInfo::of::<T1>()),
+            _ => None,
+        }
+    }
+}
+
+impl<T0: Any, T1: Any, T2: Any> Tuple for (T0, T1, T2) {
+    type Option = (Option<T0>, Option<T1>, Option<T2>);
+
+    const LEN: TupleIndex = 3;
+
+    fn type_info(index: TupleIndex) -> Option<TypeInfo> {
+        #[allow(clippy::match_single_binding)]
+        match index {
+            0 => Some(TypeInfo::of::<T0>()),
+            1 => Some(TypeInfo::of::<T1>()),
+            2 => Some(TypeInfo::of::<T2>()),
             _ => None,
         }
     }

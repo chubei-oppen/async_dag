@@ -76,6 +76,23 @@ where
     }
 }
 
+impl<'a, Fn, Ok, Err, Fut, I0, I1, I2> IntoTryTask<'a, (I0, I1, I2), Ok, Err> for Fn
+where
+    Fn: FnOnce(I0, I1, I2) -> Fut + 'a,
+    Ok: IntoAny,
+    Err: 'a,
+    Fut: Future<Output = Result<Ok, Err>> + Send + 'a,
+    I0: IntoAny,
+    I1: IntoAny,
+    I2: IntoAny,
+{
+    type Task = FnOnceTask<Fn, Ok, Err, Fut, (I0, I1, I2)>;
+
+    fn into_task(self) -> Self::Task {
+        FnOnceTask::new(self)
+    }
+}
+
 /// A [`TryTask`] for types that implement [`FnOnce`].
 pub struct FnOnceTask<Fn, Ok, Err, Fut, Args> {
     function: Fn,
@@ -156,6 +173,25 @@ where
     type Future = Fut;
     fn run(self, (i0, i1): Self::Inputs) -> Self::Future {
         (self.function)(i0, i1)
+    }
+}
+
+impl<'a, Fn, Ok, Err, Fut, I0, I1, I2> TryTask<'a> for FnOnceTask<Fn, Ok, Err, Fut, (I0, I1, I2)>
+where
+    Fn: FnOnce(I0, I1, I2) -> Fut,
+    Ok: IntoAny,
+    Err: 'a,
+    Fut: Future<Output = Result<Ok, Err>> + Send + 'a,
+    I0: IntoAny,
+    I1: IntoAny,
+    I2: IntoAny,
+{
+    type Inputs = (I0, I1, I2);
+    type Ok = Ok;
+    type Err = Err;
+    type Future = Fut;
+    fn run(self, (i0, i1, i2): Self::Inputs) -> Self::Future {
+        (self.function)(i0, i1, i2)
     }
 }
 

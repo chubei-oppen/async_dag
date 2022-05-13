@@ -1,3 +1,9 @@
+# Async DAG
+
+[![Crate](https://img.shields.io/crates/v/async_dag.svg)](https://crates.io/crates/async_dag)
+![Crates.io](https://img.shields.io/crates/l/async_dag.svg)
+[![API](https://docs.rs/async_dag/badge.svg)](https://docs.rs/async_dag)
+
 <!-- cargo-sync-readme start -->
 
 `async_dag` is an async task scheduling utility.

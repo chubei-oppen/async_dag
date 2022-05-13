@@ -1,7 +1,7 @@
 pub mod error;
 mod runner;
 
-use crate::any::type_info;
+use crate::any::downcast;
 use crate::any::DynAny;
 use crate::any::IntoAny;
 use crate::any::TypeInfo;
@@ -16,7 +16,6 @@ use error::Error;
 use error::ErrorWithTask;
 use runner::Runner;
 use std::any::type_name;
-use std::any::Any;
 use std::collections::HashMap;
 
 /// A [`Box`]ed [`Curry`].
@@ -48,6 +47,22 @@ pub enum Node<'a, Err> {
         /// The output type.
         type_info: TypeInfo,
     },
+}
+
+impl<'a, Err> Node<'a, Err> {
+    /// Converts this [`Node`] into a concrete type.
+    ///
+    /// Returns `self` on failure.
+    pub fn downcast<T: 'static>(self) -> Result<T, Self> {
+        if let Self::Value { value, type_info } = self {
+            match downcast(value) {
+                Ok(value) => Ok(value),
+                Err(value) => Err(Node::Value { value, type_info }),
+            }
+        } else {
+            Err(self)
+        }
+    }
 }
 
 /// Node identifier.
@@ -94,12 +109,7 @@ impl<'a, Err: 'a> TryGraph<'a, Err> {
     /// **Panics** if `node` does not exist within the graph.
     pub fn get_value<T: 'static>(&self, node: NodeIndex) -> Option<T> {
         match self.dag.node_weight(node).unwrap() {
-            Node::Value { value, .. } => {
-                let value = value.clone().into_any();
-                Box::<dyn Any + 'static>::downcast(value)
-                    .ok()
-                    .map(|value| *value)
-            }
+            Node::Value { value, .. } => downcast(value.clone()).ok(),
             _ => None,
         }
     }
@@ -146,7 +156,7 @@ impl<'a, Err: 'a> TryGraph<'a, Err> {
         child: NodeIndex,
         index: Edge,
     ) -> Result<NodeIndex, ErrorWithTask<T>> {
-        if let Err(error) = self.type_check(child, index, type_info::<Ok>()) {
+        if let Err(error) = self.type_check(child, index, TypeInfo::of::<Ok>()) {
             return Err(ErrorWithTask { error, task });
         }
         #[allow(unused_results)]
@@ -345,14 +355,16 @@ mod tests {
         let mut graph = Graph::new();
         let root = graph.add_task(|_: ()| async { () });
 
-        let error = graph.type_check(root, 1, type_info::<()>()).unwrap_err();
+        let error = graph.type_check(root, 1, TypeInfo::of::<()>()).unwrap_err();
         let len = match error {
             Error::OutOfRange(len) => len,
             _ => panic!("Expecting out of range error"),
         };
         assert_eq!(len, 1);
 
-        let error = graph.type_check(root, 0, type_info::<i32>()).unwrap_err();
+        let error = graph
+            .type_check(root, 0, TypeInfo::of::<i32>())
+            .unwrap_err();
         let (input, output) = match error {
             Error::TypeMismatch { input, output } => (input, output),
             _ => panic!("Expecting type mismatch error"),

@@ -19,6 +19,15 @@ impl<T: 'static + Clone> IntoAny for T {
     }
 }
 
+pub fn downcast<T: 'static>(value: Box<dyn IntoAny>) -> Result<T, Box<dyn IntoAny>> {
+    if (*value).type_id() != TypeId::of::<T>() {
+        return Err(value);
+    }
+    let value = value.into_any();
+    // We've checked the type id.
+    Ok(*Box::<dyn Any + 'static>::downcast::<T>(value).unwrap())
+}
+
 /// A [`TypeId`] and the type's name.
 #[derive(Debug, Clone, Copy)]
 pub struct TypeInfo {
@@ -35,6 +44,15 @@ impl TypeInfo {
     /// Gets the type name.
     pub fn name(&self) -> &'static str {
         self.name
+    }
+
+    /// Returns the [`TypeInfo`] of the type this generic function has been
+    /// instantiated with.
+    pub fn of<T: 'static>() -> Self {
+        TypeInfo {
+            id: TypeId::of::<T>(),
+            name: type_name::<T>(),
+        }
     }
 }
 
@@ -70,12 +88,5 @@ pub type DynAny = Box<dyn IntoAny>;
 impl std::fmt::Debug for DynAny {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("NamedAny").finish_non_exhaustive()
-    }
-}
-
-pub fn type_info<T: 'static>() -> TypeInfo {
-    TypeInfo {
-        id: TypeId::of::<T>(),
-        name: type_name::<T>(),
     }
 }

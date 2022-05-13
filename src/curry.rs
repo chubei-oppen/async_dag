@@ -1,4 +1,3 @@
-use crate::any::type_info;
 use crate::any::DynAny;
 use crate::any::IntoAny;
 use crate::any::TypeInfo;
@@ -67,7 +66,7 @@ impl<'a, Err, T: TryTask<'a, Err = Err>> Curry<'a, Err> for CurriedTask<'a, Err,
     }
 
     fn output_type_info(&self) -> TypeInfo {
-        type_info::<T::Ok>()
+        TypeInfo::of::<T::Ok>()
     }
 
     fn ready(&self) -> bool {

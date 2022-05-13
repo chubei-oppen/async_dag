@@ -1,6 +1,5 @@
 //! Utility structs and traits for manipulating tuples and tuple of [`Option`]s.
 
-use crate::any::type_info;
 use crate::any::DynAny;
 use crate::any::TypeInfo;
 use std::any::{type_name, Any, TypeId};
@@ -232,7 +231,7 @@ impl<T0: Any> Tuple for (T0,) {
     fn type_info(index: TupleIndex) -> Option<TypeInfo> {
         #[allow(clippy::match_single_binding)]
         match index {
-            0 => Some(type_info::<T0>()),
+            0 => Some(TypeInfo::of::<T0>()),
             _ => None,
         }
     }
@@ -246,8 +245,8 @@ impl<T0: Any, T1: Any> Tuple for (T0, T1) {
     fn type_info(index: TupleIndex) -> Option<TypeInfo> {
         #[allow(clippy::match_single_binding)]
         match index {
-            0 => Some(type_info::<T0>()),
-            1 => Some(type_info::<T1>()),
+            0 => Some(TypeInfo::of::<T0>()),
+            1 => Some(TypeInfo::of::<T1>()),
             _ => None,
         }
     }

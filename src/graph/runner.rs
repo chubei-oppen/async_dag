@@ -1,5 +1,5 @@
-use crate::any::type_info;
 use crate::any::DynAny;
+use crate::any::TypeInfo;
 use crate::curry::TaskFuture;
 use crate::graph::Edge;
 use crate::graph::Node;
@@ -36,7 +36,7 @@ impl<'a, Err> Future for RunningNode<'a, Err> {
 // Puts `node` to running if it contains a ready [Curry], doesn't change it otherwise.
 fn call_node<'a, Err>(node: &mut Node<'a, Err>) -> Option<TaskFuture<'a, Err>> {
     // Make a placeholder and swap `node` out.
-    let mut owned_node = Node::Running(type_info::<()>());
+    let mut owned_node = Node::Running(TypeInfo::of::<()>());
     swap(node, &mut owned_node);
 
     if let Node::Curry(curry) = owned_node {

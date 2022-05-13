@@ -6,13 +6,19 @@ use crate::tuple::TupleIndex;
 
 /// Errors that can happen during graph construction.
 #[derive(Debug)]
+#[allow(variant_size_differences)]
 pub enum Error {
     /// The specified dependent node has started running its task and can't have its dependency modified.
     HasStarted(NodeIndex),
     /// The specified dependency index is greater than or equal to the dependent node's task's number of inputs.
     OutOfRange(TupleIndex),
     /// The dependent node's task has `input` type at specified index, but the depended node's task has a different `output` type.
-    TypeMismatch { input: TypeInfo, output: TypeInfo },
+    TypeMismatch {
+        /// The input type for the child.
+        input: TypeInfo,
+        /// The output type from the parent.
+        output: TypeInfo,
+    },
     /// Adding the specified dependency would have caused the graph to cycle.
     WouldCycle,
 }

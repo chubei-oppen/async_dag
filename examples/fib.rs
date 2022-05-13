@@ -12,7 +12,7 @@ fn main() {
     let mut first = graph.add_task(|| async { 1 });
     let mut second = graph.add_task(|| async { 1 });
     for _ in 0..N {
-        let next = graph.add_child_task(sum, first, 0).unwrap();
+        let next = graph.add_child_task(first, sum, 0).unwrap();
         graph.update_dependency(second, next, 1).unwrap();
 
         first = second;

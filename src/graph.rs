@@ -149,7 +149,10 @@ impl<'a, Err: 'a> TryGraph<'a, Err> {
         if let Err(error) = self.type_check(child, index, type_info::<Ok>()) {
             return Err(ErrorWithTask { error, task });
         }
-        self.remove_dependency(child, index);
+        #[allow(unused_results)]
+        {
+            self.remove_dependency(child, index);
+        }
         let (edge, node) = self.dag.add_parent(child, index, Self::make_node(task));
         assert!(self.dependencies.insert((child, index), edge).is_none());
         Ok(node)
@@ -166,17 +169,17 @@ impl<'a, Err: 'a> TryGraph<'a, Err> {
     /// **Panics** if `parent` does not exist within the graph.
     pub fn add_child_try_task<Args, Ok: IntoAny, T: IntoTryTask<'a, Args, Ok, Err>>(
         &mut self,
-        task: T,
         parent: NodeIndex,
+        task: T,
         index: Edge,
     ) -> Result<NodeIndex, ErrorWithTask<T::Task>> {
-        self.add_child_task_impl::<Ok, _>(task.into_task(), parent, index)
+        self.add_child_task_impl::<Ok, _>(parent, task.into_task(), index)
     }
 
     fn add_child_task_impl<Ok: 'static, T: TryTask<'a, Err = Err> + 'a>(
         &mut self,
-        task: T,
         parent: NodeIndex,
+        task: T,
         index: Edge,
     ) -> Result<NodeIndex, ErrorWithTask<T>> {
         let input_type_info = match T::Inputs::type_info(index) {
@@ -193,7 +196,7 @@ impl<'a, Err: 'a> TryGraph<'a, Err> {
             return Err(ErrorWithTask { error, task });
         }
         let (edge, node) = self.dag.add_child(parent, index, Self::make_node(task));
-        self.dependencies.insert((node, index), edge);
+        assert!(self.dependencies.insert((node, index), edge).is_none());
         Ok(node)
     }
 
@@ -211,7 +214,10 @@ impl<'a, Err: 'a> TryGraph<'a, Err> {
         index: Edge,
     ) -> Result<(), Error> {
         self.type_check(child, index, self.output_type_info(parent))?;
-        self.remove_dependency(child, index);
+        #[allow(unused_results)]
+        {
+            self.remove_dependency(child, index);
+        }
         let edge = self
             .dag
             .add_edge(parent, child, index)
@@ -226,16 +232,16 @@ impl<'a, Err: 'a> TryGraph<'a, Err> {
     pub fn remove_dependency(&mut self, child: NodeIndex, index: Edge) -> bool {
         let edge = self.dependencies.remove(&(child, index));
         if let Some(edge) = edge {
-            self.dag.remove_edge(edge);
+            assert!(self.dag.remove_edge(edge).is_some());
             true
         } else {
             false
         }
     }
 
-    /// Progresses the whole task graph as much as possible.
+    /// Progresses the whole task graph as much as possible, but aborts on first error.
     ///
-    /// If the returned future is dropped before completion, some tasks will be cancelled and forever lost.
+    /// If the returned future is dropped before completion, or an error occurs, some tasks will be cancelled and forever lost.
     /// Corresponding [`Node`] will be set to [`Node::Running`].
     pub async fn try_run(&mut self) -> Result<(), Err> {
         let mut runner = Runner::new(&mut self.dag);
@@ -316,7 +322,7 @@ mod tests {
     #[test]
     fn test_client_error() {
         let mut graph = TryGraph::new();
-        graph.add_try_task(|| async { Result::<(), ()>::Err(()) });
+        let _ = graph.add_try_task::<_, (), _>(|| async { Err(()) });
         block_on(graph.try_run()).unwrap_err();
     }
 
@@ -377,7 +383,7 @@ mod tests {
         let mut graph = Graph::new();
         let root = graph.add_task(|_: ()| async { () });
         assert!(!graph.remove_dependency(root, 0));
-        graph.add_parent_task(|| async { () }, root, 0).unwrap();
+        let _ = graph.add_parent_task(|| async { () }, root, 0).unwrap();
         assert!(graph.remove_dependency(root, 0));
     }
 

@@ -35,11 +35,11 @@ impl<'a> Graph<'a> {
     /// See [`TryGraph::add_child_try_task`].
     pub fn add_child_task<Args, Ok: IntoAny, T: IntoInfallibleTask<'a, Args, Ok>>(
         &mut self,
-        task: T,
         parent: NodeIndex,
+        task: T,
         index: Edge,
     ) -> Result<NodeIndex, ErrorWithTask<T::Task>> {
-        self.add_child_task_impl::<Ok, _>(task.into_task(), parent, index)
+        self.add_child_task_impl::<Ok, _>(parent, task.into_task(), index)
     }
 
     /// Infallible version of [`TryGraph::run`].

@@ -101,7 +101,7 @@ impl TupleOption<()> for () {
     }
 }
 
-impl<T0: Any> TupleOption<(T0,)> for (std::option::Option<T0>,) {
+impl<T0: Any> TupleOption<(T0,)> for (Option<T0>,) {
     fn first_none(&self) -> Option<TupleIndex> {
         if self.0.is_none() {
             return Some(0);
@@ -140,9 +140,7 @@ impl<T0: Any> TupleOption<(T0,)> for (std::option::Option<T0>,) {
     }
 }
 
-impl<T0: Any, T1: Any> TupleOption<(T0, T1)>
-    for (std::option::Option<T0>, std::option::Option<T1>)
-{
+impl<T0: Any, T1: Any> TupleOption<(T0, T1)> for (Option<T0>, Option<T1>) {
     fn first_none(&self) -> Option<TupleIndex> {
         if self.0.is_none() {
             return Some(0);
@@ -227,7 +225,7 @@ impl Tuple for () {
 }
 
 impl<T0: Any> Tuple for (T0,) {
-    type Option = (std::option::Option<T0>,);
+    type Option = (Option<T0>,);
 
     const LEN: TupleIndex = 1;
 
@@ -241,7 +239,7 @@ impl<T0: Any> Tuple for (T0,) {
 }
 
 impl<T0: Any, T1: Any> Tuple for (T0, T1) {
-    type Option = (std::option::Option<T0>, std::option::Option<T1>);
+    type Option = (Option<T0>, Option<T1>);
 
     const LEN: TupleIndex = 2;
 

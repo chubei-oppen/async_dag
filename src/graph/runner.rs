@@ -135,7 +135,16 @@ impl<'task, 'graph, Err> Runner<'task, 'graph, Err> {
             }
         }
 
-        *self.node_graph.node_weight_mut(node_index).unwrap() = Node::Value(output);
+        let node = self.node_graph.node_weight_mut(node_index).unwrap();
+        // It must be `Running`.
+        let type_info = match node {
+            Node::Running(type_info) => *type_info,
+            _ => panic!("Expecting running state"),
+        };
+        *self.node_graph.node_weight_mut(node_index).unwrap() = Node::Value {
+            value: output,
+            type_info,
+        };
 
         Ok(())
     }

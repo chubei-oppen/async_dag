@@ -3,7 +3,7 @@ mod runner;
 
 use crate::any::type_info;
 use crate::any::DynAny;
-use crate::any::NamedAny;
+use crate::any::IntoAny;
 use crate::any::TypeInfo;
 use crate::curry::CurriedTask;
 use crate::curry::Curry;
@@ -20,7 +20,7 @@ use std::any::Any;
 use std::collections::HashMap;
 
 /// A [`Box`]ed [`Curry`].
-pub type DynCurry<'a, Err> = Box<dyn Curry<'a, Err> + 'a>;
+type DynCurry<'a, Err> = Box<dyn Curry<'a, Err> + 'a>;
 
 impl<'a, Err> std::fmt::Debug for DynCurry<'a, Err> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -42,7 +42,12 @@ pub enum Node<'a, Err> {
     /// The [`Curry`] is called and result future is stored elsewhere and perhaps running.
     Running(TypeInfo),
     /// A successful output from a completed [`TryTask`](crate::task::TryTask).
-    Value(DynAny),
+    Value {
+        /// The output value.
+        value: DynAny,
+        /// The output type.
+        type_info: TypeInfo,
+    },
 }
 
 /// Node identifier.
@@ -89,7 +94,7 @@ impl<'a, Err: 'a> TryGraph<'a, Err> {
     /// **Panics** if `node` does not exist within the graph.
     pub fn get_value<T: 'static>(&self, node: NodeIndex) -> Option<T> {
         match self.dag.node_weight(node).unwrap() {
-            Node::Value(value) => {
+            Node::Value { value, .. } => {
                 let value = value.clone().into_any();
                 Box::<dyn Any + 'static>::downcast(value)
                     .ok()
@@ -126,7 +131,7 @@ impl<'a, Err: 'a> TryGraph<'a, Err> {
     /// **Panics** if the graph is at the maximum number of nodes for its index type.
     ///
     /// **Panics** if `child` does not exist within the graph.
-    pub fn add_parent_try_task<Args, Ok: NamedAny, T: IntoTryTask<'a, Args, Ok, Err>>(
+    pub fn add_parent_try_task<Args, Ok: IntoAny, T: IntoTryTask<'a, Args, Ok, Err>>(
         &mut self,
         task: T,
         child: NodeIndex,
@@ -159,7 +164,7 @@ impl<'a, Err: 'a> TryGraph<'a, Err> {
     /// **Panics** if the graph is at the maximum number of nodes for its index type.
     ///
     /// **Panics** if `parent` does not exist within the graph.
-    pub fn add_child_try_task<Args, Ok: NamedAny, T: IntoTryTask<'a, Args, Ok, Err>>(
+    pub fn add_child_try_task<Args, Ok: IntoAny, T: IntoTryTask<'a, Args, Ok, Err>>(
         &mut self,
         task: T,
         parent: NodeIndex,
@@ -265,7 +270,7 @@ impl<'a, Err: 'a> TryGraph<'a, Err> {
         match node {
             Node::Curry(curry) => curry.output_type_info(),
             Node::Running(type_info) => *type_info,
-            Node::Value(value) => value.type_info(),
+            Node::Value { type_info, .. } => *type_info,
         }
     }
 }

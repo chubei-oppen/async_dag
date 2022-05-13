@@ -7,7 +7,7 @@ use std::{
 /// Conversion to [`Any`] to workaround [#65991](https://github.com/rust-lang/rust/issues/65991).
 /// Implemented for anything that's `'static` and [`Clone`].
 pub trait IntoAny: DynClone + Any {
-    /// Type erase `self`.
+    /// The conversion.
     fn into_any(self: Box<Self>) -> Box<dyn Any>;
 }
 
@@ -64,26 +64,8 @@ impl Ord for TypeInfo {
     }
 }
 
-/// A type with its name remembered.
-/// Implemented for anything that's `'static` and [`Clone`].
-pub trait NamedAny: IntoAny {
-    /// Gets the type id and name from a value.
-    fn type_info(&self) -> TypeInfo;
-}
-
-dyn_clone::clone_trait_object!(NamedAny);
-
-impl<T: 'static + Clone> NamedAny for T {
-    fn type_info(&self) -> TypeInfo {
-        TypeInfo {
-            id: self.type_id(),
-            name: type_name::<T>(),
-        }
-    }
-}
-
-/// Type eraser of [`NamedAny`].
-pub type DynAny = Box<dyn NamedAny>;
+/// A [`Box`]ed [`IntoAny`].
+pub type DynAny = Box<dyn IntoAny>;
 
 impl std::fmt::Debug for DynAny {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

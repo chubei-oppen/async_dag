@@ -1,6 +1,6 @@
 use crate::any::type_info;
 use crate::any::DynAny;
-use crate::any::NamedAny;
+use crate::any::IntoAny;
 use crate::any::TypeInfo;
 use crate::task::TryTask;
 use crate::tuple::InsertResult;
@@ -53,7 +53,7 @@ impl<'a, Err, T: TryTask<'a, Err = Err>> CurriedTask<'a, Err, T> {
     }
 }
 
-fn make_any<T: NamedAny>(t: T) -> DynAny {
+fn make_any<T: IntoAny>(t: T) -> DynAny {
     Box::new(t)
 }
 

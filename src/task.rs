@@ -1,4 +1,4 @@
-use crate::any::NamedAny;
+use crate::any::IntoAny;
 use crate::tuple::Tuple;
 use std::any::type_name;
 use std::future::Future;
@@ -10,7 +10,7 @@ pub trait TryTask<'a>: std::fmt::Debug {
     type Inputs: Tuple;
 
     /// Successful output.
-    type Ok: NamedAny;
+    type Ok: IntoAny;
 
     /// Error output.
     type Err: 'a;
@@ -34,7 +34,7 @@ pub trait IntoTryTask<'a, Args, Ok, Err> {
 impl<'a, Fn, Ok, Err, Fut> IntoTryTask<'a, (), Ok, Err> for Fn
 where
     Fn: FnOnce() -> Fut + 'a,
-    Ok: NamedAny,
+    Ok: IntoAny,
     Err: 'a,
     Fut: Future<Output = Result<Ok, Err>> + Send + 'a,
 {
@@ -48,10 +48,10 @@ where
 impl<'a, Fn, Ok, Err, Fut, I0> IntoTryTask<'a, (I0,), Ok, Err> for Fn
 where
     Fn: FnOnce(I0) -> Fut + 'a,
-    Ok: NamedAny,
+    Ok: IntoAny,
     Err: 'a,
     Fut: Future<Output = Result<Ok, Err>> + Send + 'a,
-    I0: NamedAny,
+    I0: IntoAny,
 {
     type Task = FnOnceTask<Fn, Ok, Err, Fut, (I0,)>;
 
@@ -63,11 +63,11 @@ where
 impl<'a, Fn, Ok, Err, Fut, I0, I1> IntoTryTask<'a, (I0, I1), Ok, Err> for Fn
 where
     Fn: FnOnce(I0, I1) -> Fut + 'a,
-    Ok: NamedAny,
+    Ok: IntoAny,
     Err: 'a,
     Fut: Future<Output = Result<Ok, Err>> + Send + 'a,
-    I0: NamedAny,
-    I1: NamedAny,
+    I0: IntoAny,
+    I1: IntoAny,
 {
     type Task = FnOnceTask<Fn, Ok, Err, Fut, (I0, I1)>;
 
@@ -111,7 +111,7 @@ impl<Fn, Ok, Err, Fut, Args> std::fmt::Debug for FnOnceTask<Fn, Ok, Err, Fut, Ar
 impl<'a, Fn, Ok, Err, Fut> TryTask<'a> for FnOnceTask<Fn, Ok, Err, Fut, ()>
 where
     Fn: FnOnce() -> Fut,
-    Ok: NamedAny,
+    Ok: IntoAny,
     Err: 'a,
     Fut: Future<Output = Result<Ok, Err>> + Send + 'a,
 {
@@ -127,10 +127,10 @@ where
 impl<'a, Fn, Ok, Err, Fut, I0> TryTask<'a> for FnOnceTask<Fn, Ok, Err, Fut, (I0,)>
 where
     Fn: FnOnce(I0) -> Fut,
-    Ok: NamedAny,
+    Ok: IntoAny,
     Err: 'a,
     Fut: Future<Output = Result<Ok, Err>> + Send + 'a,
-    I0: NamedAny,
+    I0: IntoAny,
 {
     type Inputs = (I0,);
     type Ok = Ok;
@@ -144,11 +144,11 @@ where
 impl<'a, Fn, Ok, Err, Fut, I0, I1> TryTask<'a> for FnOnceTask<Fn, Ok, Err, Fut, (I0, I1)>
 where
     Fn: FnOnce(I0, I1) -> Fut,
-    Ok: NamedAny,
+    Ok: IntoAny,
     Err: 'a,
     Fut: Future<Output = Result<Ok, Err>> + Send + 'a,
-    I0: NamedAny,
-    I1: NamedAny,
+    I0: IntoAny,
+    I1: IntoAny,
 {
     type Inputs = (I0, I1);
     type Ok = Ok;

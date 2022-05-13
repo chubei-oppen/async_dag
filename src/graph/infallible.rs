@@ -1,7 +1,7 @@
 use super::Edge;
 use super::NodeIndex;
 use super::TryGraph;
-use crate::any::NamedAny;
+use crate::any::IntoAny;
 use crate::error::ErrorWithTask;
 use crate::task::IntoInfallibleTask;
 use std::convert::Infallible;
@@ -21,7 +21,7 @@ impl<'a> Graph<'a> {
     /// Adds an infallible task and set it as `child`'s dependency at `index`.
     ///
     /// See [`TryGraph::add_parent_try_task`].
-    pub fn add_parent_task<Args, Ok: NamedAny, T: IntoInfallibleTask<'a, Args, Ok>>(
+    pub fn add_parent_task<Args, Ok: IntoAny, T: IntoInfallibleTask<'a, Args, Ok>>(
         &mut self,
         task: T,
         child: NodeIndex,
@@ -33,7 +33,7 @@ impl<'a> Graph<'a> {
     /// Adds an infallible task and set it's dependency at `index` to `parent`.
     ///
     /// See [`TryGraph::add_child_try_task`].
-    pub fn add_child_task<Args, Ok: NamedAny, T: IntoInfallibleTask<'a, Args, Ok>>(
+    pub fn add_child_task<Args, Ok: IntoAny, T: IntoInfallibleTask<'a, Args, Ok>>(
         &mut self,
         task: T,
         parent: NodeIndex,

@@ -5,7 +5,7 @@ mod node;
 mod task;
 mod tuple;
 
-pub use any::NamedAny;
+pub use any::IntoAny;
 pub use any::TypeInfo;
 pub use curry::Curry;
 pub use graph::*;

@@ -18,14 +18,28 @@ impl<'a> Graph<'a> {
         self.add_task_impl(task.into_task())
     }
 
-    /// Adds a infallible task and set dependency. See [`TryGraph::add_dependent_try_task`].
-    pub fn add_dependent_task<Args, Ok: NamedAny, T: IntoInfallibleTask<'a, Args, Ok>>(
+    /// Adds an infallible task and set it as `child`'s dependency at `index`.
+    ///
+    /// See [`TryGraph::add_parent_try_task`].
+    pub fn add_parent_task<Args, Ok: NamedAny, T: IntoInfallibleTask<'a, Args, Ok>>(
         &mut self,
         task: T,
         child: NodeIndex,
         index: Edge,
     ) -> Result<NodeIndex, ErrorWithTask<T::Task>> {
-        self.add_dependent_task_impl::<Ok, _>(task.into_task(), child, index)
+        self.add_parent_task_impl::<Ok, _>(task.into_task(), child, index)
+    }
+
+    /// Adds an infallible task and set it's dependency at `index` to `parent`.
+    ///
+    /// See [`TryGraph::add_child_try_task`].
+    pub fn add_child_task<Args, Ok: NamedAny, T: IntoInfallibleTask<'a, Args, Ok>>(
+        &mut self,
+        task: T,
+        parent: NodeIndex,
+        index: Edge,
+    ) -> Result<NodeIndex, ErrorWithTask<T::Task>> {
+        self.add_child_task_impl::<Ok, _>(task.into_task(), parent, index)
     }
 
     /// Infallible version of [`TryGraph::run`].

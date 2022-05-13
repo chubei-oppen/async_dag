@@ -59,11 +59,11 @@ fn make_any<T: NamedAny>(t: T) -> DynAny {
 
 impl<'a, Err, T: TryTask<'a, Err = Err>> Curry<'a, Err> for CurriedTask<'a, Err, T> {
     fn num_inputs(&self) -> TupleIndex {
-        <T::Inputs as Tuple>::Option::LEN
+        T::Inputs::LEN
     }
 
     fn input_type_info(&self, index: TupleIndex) -> Option<TypeInfo> {
-        <T::Inputs as Tuple>::Option::type_info(index)
+        T::Inputs::type_info(index)
     }
 
     fn output_type_info(&self) -> TypeInfo {

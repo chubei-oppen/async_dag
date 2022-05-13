@@ -9,12 +9,14 @@ use crate::curry::CurriedTask;
 use crate::curry::Curry;
 use crate::task::IntoTryTask;
 use crate::task::TryTask;
+use crate::tuple::Tuple;
 use crate::tuple::TupleIndex;
 use daggy::EdgeIndex;
 use error::Error;
 use error::ErrorWithTask;
 use runner::Runner;
 use std::any::type_name;
+use std::any::Any;
 use std::collections::HashMap;
 
 /// A [`Box`]ed [`Curry`].
@@ -70,7 +72,7 @@ impl<'a, Err: 'a> TryGraph<'a, Err> {
 
     /// Converts `self` into an iterator of [`Node`]s.
     ///
-    /// Client should use this method and previous returned [`NodeIndex`]s to retrive the graph running result.
+    /// Client can use this method and previous returned [`NodeIndex`]s to retrive the graph running result.
     pub fn into_nodes(self) -> impl Iterator<Item = Node<'a, Err>> {
         self.dag
             .into_graph()
@@ -78,6 +80,23 @@ impl<'a, Err: 'a> TryGraph<'a, Err> {
             .0
             .into_iter()
             .map(|node| node.weight)
+    }
+
+    /// Gets the output value of `node`.
+    ///
+    /// Returns [`None`] if the `node`'s task hasn't done running or the type does not match.
+    ///
+    /// **Panics** if `node` does not exist within the graph.
+    pub fn get_value<T: 'static>(&self, node: NodeIndex) -> Option<T> {
+        match self.dag.node_weight(node).unwrap() {
+            Node::Value(value) => {
+                let value = value.clone().into_any();
+                Box::<dyn Any + 'static>::downcast(value)
+                    .ok()
+                    .map(|value| *value)
+            }
+            _ => None,
+        }
     }
 
     /// Adds a task without specifying its dependencies.
@@ -107,16 +126,16 @@ impl<'a, Err: 'a> TryGraph<'a, Err> {
     /// **Panics** if the graph is at the maximum number of nodes for its index type.
     ///
     /// **Panics** if `child` does not exist within the graph.
-    pub fn add_dependent_try_task<Args, Ok: NamedAny, T: IntoTryTask<'a, Args, Ok, Err>>(
+    pub fn add_parent_try_task<Args, Ok: NamedAny, T: IntoTryTask<'a, Args, Ok, Err>>(
         &mut self,
         task: T,
         child: NodeIndex,
         index: Edge,
     ) -> Result<NodeIndex, ErrorWithTask<T::Task>> {
-        self.add_dependent_task_impl::<Ok, _>(task.into_task(), child, index)
+        self.add_parent_task_impl::<Ok, _>(task.into_task(), child, index)
     }
 
-    fn add_dependent_task_impl<Ok: 'static, T: TryTask<'a, Err = Err> + 'a>(
+    fn add_parent_task_impl<Ok: 'static, T: TryTask<'a, Err = Err> + 'a>(
         &mut self,
         task: T,
         child: NodeIndex,
@@ -128,6 +147,48 @@ impl<'a, Err: 'a> TryGraph<'a, Err> {
         self.remove_dependency(child, index);
         let (edge, node) = self.dag.add_parent(child, index, Self::make_node(task));
         assert!(self.dependencies.insert((child, index), edge).is_none());
+        Ok(node)
+    }
+
+    /// Adds a task and set it's dependency at `index` as `parent`.
+    ///
+    /// Returns the [`NodeIndex`] representing the added task.
+    ///
+    /// This is more efficient than [`TryGraph::add_task`] then [`TryGraph::update_dependency`].
+    ///
+    /// **Panics** if the graph is at the maximum number of nodes for its index type.
+    ///
+    /// **Panics** if `parent` does not exist within the graph.
+    pub fn add_child_try_task<Args, Ok: NamedAny, T: IntoTryTask<'a, Args, Ok, Err>>(
+        &mut self,
+        task: T,
+        parent: NodeIndex,
+        index: Edge,
+    ) -> Result<NodeIndex, ErrorWithTask<T::Task>> {
+        self.add_child_task_impl::<Ok, _>(task.into_task(), parent, index)
+    }
+
+    fn add_child_task_impl<Ok: 'static, T: TryTask<'a, Err = Err> + 'a>(
+        &mut self,
+        task: T,
+        parent: NodeIndex,
+        index: Edge,
+    ) -> Result<NodeIndex, ErrorWithTask<T>> {
+        let input_type_info = match T::Inputs::type_info(index) {
+            Some(type_info) => type_info,
+            None => {
+                return Err(ErrorWithTask {
+                    error: Error::OutOfRange(T::Inputs::LEN),
+                    task,
+                })
+            }
+        };
+        let output_type_info = self.output_type_info(parent);
+        if let Err(error) = check_type_equality(input_type_info, output_type_info) {
+            return Err(ErrorWithTask { error, task });
+        }
+        let (edge, node) = self.dag.add_child(parent, index, Self::make_node(task));
+        self.dependencies.insert((node, index), edge);
         Ok(node)
     }
 
@@ -190,12 +251,7 @@ impl<'a, Err: 'a> TryGraph<'a, Err> {
         let input_type_info = curry
             .input_type_info(index)
             .ok_or_else(|| Error::OutOfRange(curry.num_inputs()))?;
-        if input_type_info != output_type_info {
-            return Err(Error::TypeMismatch {
-                input: input_type_info,
-                output: output_type_info,
-            });
-        }
+        check_type_equality(input_type_info, output_type_info)?;
         Ok(())
     }
 
@@ -214,6 +270,14 @@ impl<'a, Err: 'a> TryGraph<'a, Err> {
     }
 }
 
+fn check_type_equality(input: TypeInfo, output: TypeInfo) -> Result<(), Error> {
+    if input != output {
+        Err(Error::TypeMismatch { input, output })
+    } else {
+        Ok(())
+    }
+}
+
 mod infallible;
 
 pub use infallible::*;
@@ -222,7 +286,7 @@ pub use infallible::*;
 mod tests {
     use super::*;
     use futures::executor::block_on;
-    use std::any::{Any, TypeId};
+    use std::any::TypeId;
 
     #[test]
     fn test_diamond_shape_graph() {
@@ -230,25 +294,18 @@ mod tests {
 
         let root = graph.add_task(|lhs: i32, rhs: i32| async move { lhs + rhs });
         let lhs = graph
-            .add_dependent_task(|v: i32| async move { v }, root, 0)
+            .add_parent_task(|v: i32| async move { v }, root, 0)
             .unwrap();
         let rhs = graph
-            .add_dependent_task(|v: i32| async move { v }, root, 1)
+            .add_parent_task(|v: i32| async move { v }, root, 1)
             .unwrap();
-        let input = graph
-            .add_dependent_task(|| async move { 1 }, lhs, 0)
-            .unwrap();
+        let input = graph.add_parent_task(|| async move { 1 }, lhs, 0).unwrap();
         graph.update_dependency(input, rhs, 0).unwrap();
 
         block_on(graph.run());
 
-        let result = graph.into_nodes().nth(root.index()).unwrap();
-        let result = match result {
-            Node::Value(value) => value,
-            _ => panic!("Expecting value"),
-        };
-        let result = Box::<dyn Any + 'static>::downcast::<i32>(result.into_any()).unwrap();
-        assert_eq!(*result, 2);
+        let result = graph.get_value::<i32>(root).unwrap();
+        assert_eq!(result, 2);
     }
 
     #[test]
@@ -262,7 +319,7 @@ mod tests {
     fn test_has_started_check() {
         let mut graph = Graph::new();
         let root = graph.add_task(|_: ()| async { () });
-        let parent = graph.add_dependent_task(|| async { () }, root, 0).unwrap();
+        let parent = graph.add_parent_task(|| async { () }, root, 0).unwrap();
         block_on(graph.run());
         let error = graph.update_dependency(parent, root, 0).unwrap_err();
         let index = match error {
@@ -301,7 +358,7 @@ mod tests {
         let mut graph = Graph::new();
         let root = graph.add_task(|_: ()| async { () });
         let parent = graph
-            .add_dependent_task(|_: ()| async { () }, root, 0)
+            .add_parent_task(|_: ()| async { () }, root, 0)
             .unwrap();
         let error = graph.update_dependency(root, parent, 0).unwrap_err();
         match error {
@@ -315,7 +372,7 @@ mod tests {
         let mut graph = Graph::new();
         let root = graph.add_task(|_: ()| async { () });
         assert!(!graph.remove_dependency(root, 0));
-        graph.add_dependent_task(|| async { () }, root, 0).unwrap();
+        graph.add_parent_task(|| async { () }, root, 0).unwrap();
         assert!(graph.remove_dependency(root, 0));
     }
 
@@ -323,7 +380,7 @@ mod tests {
     fn test_update_dependency() {
         let mut graph = Graph::new();
         let root = graph.add_task(|_: ()| async { () });
-        let parent = graph.add_dependent_task(|| async { () }, root, 0).unwrap();
+        let parent = graph.add_parent_task(|| async { () }, root, 0).unwrap();
         graph.update_dependency(parent, root, 0).unwrap();
         graph.update_dependency(parent, root, 0).unwrap();
     }

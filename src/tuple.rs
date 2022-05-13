@@ -63,15 +63,7 @@ impl std::fmt::Display for TakeError {
 impl std::error::Error for TakeError {}
 
 /// Implemented for all [`Sized`] + `'static` tuple of [`Option`]s.
-pub trait TupleOption<T>: Default {
-    /// Length of the tuple.
-    const LEN: TupleIndex;
-
-    /// [`TypeId`] and name of the type at `index`.
-    ///
-    /// Returns [`None`] if `index` is out of range.
-    fn type_info(index: TupleIndex) -> Option<TypeInfo>;
-
+pub trait TupleOption<T: Tuple>: Default {
     /// Returns index of the first element that is [`None`].
     fn first_none(&self) -> Option<TupleIndex>;
 
@@ -87,15 +79,6 @@ pub trait TupleOption<T>: Default {
 }
 
 impl TupleOption<()> for () {
-    const LEN: TupleIndex = 0;
-
-    fn type_info(index: TupleIndex) -> Option<TypeInfo> {
-        #[allow(clippy::match_single_binding)]
-        match index {
-            _ => None,
-        }
-    }
-
     fn first_none(&self) -> Option<TupleIndex> {
         None
     }
@@ -119,16 +102,6 @@ impl TupleOption<()> for () {
 }
 
 impl<T0: Any> TupleOption<(T0,)> for (std::option::Option<T0>,) {
-    const LEN: TupleIndex = 1;
-
-    fn type_info(index: TupleIndex) -> Option<TypeInfo> {
-        #[allow(clippy::match_single_binding)]
-        match index {
-            0 => Some(type_info::<T0>()),
-            _ => None,
-        }
-    }
-
     fn first_none(&self) -> Option<TupleIndex> {
         if self.0.is_none() {
             return Some(0);
@@ -170,17 +143,6 @@ impl<T0: Any> TupleOption<(T0,)> for (std::option::Option<T0>,) {
 impl<T0: Any, T1: Any> TupleOption<(T0, T1)>
     for (std::option::Option<T0>, std::option::Option<T1>)
 {
-    const LEN: TupleIndex = 2;
-
-    fn type_info(index: TupleIndex) -> Option<TypeInfo> {
-        #[allow(clippy::match_single_binding)]
-        match index {
-            0 => Some(type_info::<T0>()),
-            1 => Some(type_info::<T1>()),
-            _ => None,
-        }
-    }
-
     fn first_none(&self) -> Option<TupleIndex> {
         if self.0.is_none() {
             return Some(0);
@@ -239,19 +201,58 @@ impl<T0: Any, T1: Any> TupleOption<(T0, T1)>
 
 /// Implemented for all [`Sized`] + `'static` tuples.
 pub trait Tuple: Sized {
+    /// The corresponding tuple of [`Option`]s.
     type Option: TupleOption<Self>;
+
+    /// Length of the tuple.
+    const LEN: TupleIndex;
+
+    /// [`TypeId`] and name of the type at `index`.
+    ///
+    /// Returns [`None`] if `index` is out of range.
+    fn type_info(index: TupleIndex) -> Option<TypeInfo>;
 }
 
 impl Tuple for () {
     type Option = ();
+
+    const LEN: TupleIndex = 0;
+
+    fn type_info(index: TupleIndex) -> Option<TypeInfo> {
+        #[allow(clippy::match_single_binding)]
+        match index {
+            _ => None,
+        }
+    }
 }
 
 impl<T0: Any> Tuple for (T0,) {
     type Option = (std::option::Option<T0>,);
+
+    const LEN: TupleIndex = 1;
+
+    fn type_info(index: TupleIndex) -> Option<TypeInfo> {
+        #[allow(clippy::match_single_binding)]
+        match index {
+            0 => Some(type_info::<T0>()),
+            _ => None,
+        }
+    }
 }
 
 impl<T0: Any, T1: Any> Tuple for (T0, T1) {
     type Option = (std::option::Option<T0>, std::option::Option<T1>);
+
+    const LEN: TupleIndex = 2;
+
+    fn type_info(index: TupleIndex) -> Option<TypeInfo> {
+        #[allow(clippy::match_single_binding)]
+        match index {
+            0 => Some(type_info::<T0>()),
+            1 => Some(type_info::<T1>()),
+            _ => None,
+        }
+    }
 }
 
 #[cfg(test)]

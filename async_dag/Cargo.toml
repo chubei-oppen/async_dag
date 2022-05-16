@@ -1,0 +1,17 @@
+[package]
+name = "async_dag"
+version = "0.1.0"
+edition = "2021"
+description = "tools for async_dag"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/chubei-oppen/async_dag"
+keywords = ["async", "dag", "scheduling"]
+categories = ["algorithms", "asynchronous", "concurrency"]
+readme = "../README.md"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+daggy = "0.8.0"
+dyn-clone = "1.0.5"
+futures = "0.3.21"

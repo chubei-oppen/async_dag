@@ -15,6 +15,8 @@ fn main() -> Result<()> {
     run(Command::new("cargo").args(["clippy", "--", "-D", "warnings"]))?;
     run(Command::new("cargo").args(["doc"]))?;
     run(Command::new("cargo").args(["test"]))?;
-    run(Command::new("cargo").args(["sync-readme"]))?;
+    run(Command::new("cargo")
+        .args(["sync-readme", "-c"])
+        .current_dir("async_dag"))?;
     Ok(())
 }

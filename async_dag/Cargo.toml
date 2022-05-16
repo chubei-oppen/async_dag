@@ -1,6 +1,6 @@
 [package]
 name = "async_dag"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "tools for async_dag"
 license = "MIT OR Apache-2.0"

@@ -159,19 +159,11 @@ macro_rules! tupl_impl {
     };
 }
 
-tupl_impl!(0);
-tupl_impl!(1);
-tupl_impl!(2);
-tupl_impl!(3);
-tupl_impl!(4);
-tupl_impl!(5);
-tupl_impl!(6);
-tupl_impl!(7);
-tupl_impl!(8);
-tupl_impl!(9);
-tupl_impl!(10);
-tupl_impl!(11);
-tupl_impl!(12);
+seq!(N in 0..=12 {
+    #(
+        tupl_impl!(N);
+    )*
+});
 
 #[cfg(test)]
 mod tests {

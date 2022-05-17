@@ -1,5 +1,6 @@
 use crate::any::IntoAny;
 use crate::tuple::Tuple;
+use seq_macro::seq;
 use std::any::type_name;
 use std::future::Future;
 use std::marker::PhantomData;
@@ -29,68 +30,6 @@ pub trait IntoTryTask<'a, Args, Ok, Err> {
 
     /// The conversion.
     fn into_task(self) -> Self::Task;
-}
-
-impl<'a, Fn, Ok, Err, Fut> IntoTryTask<'a, (), Ok, Err> for Fn
-where
-    Fn: FnOnce() -> Fut + 'a,
-    Ok: IntoAny,
-    Err: 'a,
-    Fut: Future<Output = Result<Ok, Err>> + Send + 'a,
-{
-    type Task = FnOnceTask<Fn, Ok, Err, Fut, ()>;
-
-    fn into_task(self) -> Self::Task {
-        FnOnceTask::new(self)
-    }
-}
-
-impl<'a, Fn, Ok, Err, Fut, I0> IntoTryTask<'a, (I0,), Ok, Err> for Fn
-where
-    Fn: FnOnce(I0) -> Fut + 'a,
-    Ok: IntoAny,
-    Err: 'a,
-    Fut: Future<Output = Result<Ok, Err>> + Send + 'a,
-    I0: IntoAny,
-{
-    type Task = FnOnceTask<Fn, Ok, Err, Fut, (I0,)>;
-
-    fn into_task(self) -> Self::Task {
-        FnOnceTask::new(self)
-    }
-}
-
-impl<'a, Fn, Ok, Err, Fut, I0, I1> IntoTryTask<'a, (I0, I1), Ok, Err> for Fn
-where
-    Fn: FnOnce(I0, I1) -> Fut + 'a,
-    Ok: IntoAny,
-    Err: 'a,
-    Fut: Future<Output = Result<Ok, Err>> + Send + 'a,
-    I0: IntoAny,
-    I1: IntoAny,
-{
-    type Task = FnOnceTask<Fn, Ok, Err, Fut, (I0, I1)>;
-
-    fn into_task(self) -> Self::Task {
-        FnOnceTask::new(self)
-    }
-}
-
-impl<'a, Fn, Ok, Err, Fut, I0, I1, I2> IntoTryTask<'a, (I0, I1, I2), Ok, Err> for Fn
-where
-    Fn: FnOnce(I0, I1, I2) -> Fut + 'a,
-    Ok: IntoAny,
-    Err: 'a,
-    Fut: Future<Output = Result<Ok, Err>> + Send + 'a,
-    I0: IntoAny,
-    I1: IntoAny,
-    I2: IntoAny,
-{
-    type Task = FnOnceTask<Fn, Ok, Err, Fut, (I0, I1, I2)>;
-
-    fn into_task(self) -> Self::Task {
-        FnOnceTask::new(self)
-    }
 }
 
 /// A [`TryTask`] for types that implement [`FnOnce`].
@@ -125,75 +64,51 @@ impl<Fn, Ok, Err, Fut, Args> std::fmt::Debug for FnOnceTask<Fn, Ok, Err, Fut, Ar
     }
 }
 
-impl<'a, Fn, Ok, Err, Fut> TryTask<'a> for FnOnceTask<Fn, Ok, Err, Fut, ()>
-where
-    Fn: FnOnce() -> Fut,
-    Ok: IntoAny,
-    Err: 'a,
-    Fut: Future<Output = Result<Ok, Err>> + Send + 'a,
-{
-    type Inputs = ();
-    type Ok = Ok;
-    type Err = Err;
-    type Future = Fut;
-    fn run(self, (): Self::Inputs) -> Self::Future {
-        (self.function)()
-    }
+macro_rules! task_impl {
+    ($N:literal) => {
+        seq!(i in 0..$N {
+            impl<'a, Fn, Ok, Err, Fut, #(I~i,)*> IntoTryTask<'a, (#(I~i,)*), Ok, Err> for Fn
+            where
+                Fn: FnOnce(#(I~i,)*) -> Fut + 'a,
+                Ok: IntoAny,
+                Err: 'a,
+                Fut: Future<Output = Result<Ok, Err>> + Send + 'a,
+                #(
+                    I~i: IntoAny,
+                )*
+            {
+                type Task = FnOnceTask<Fn, Ok, Err, Fut, (#(I~i,)*)>;
+
+                fn into_task(self) -> Self::Task {
+                    FnOnceTask::new(self)
+                }
+            }
+
+            impl<'a, Fn, Ok, Err, Fut, #(I~i,)*> TryTask<'a> for FnOnceTask<Fn, Ok, Err, Fut, (#(I~i,)*)>
+            where
+                Fn: FnOnce(#(I~i,)*) -> Fut,
+                Ok: IntoAny,
+                Err: 'a,
+                Fut: Future<Output = Result<Ok, Err>> + Send + 'a,
+                #(
+                    I~i: IntoAny,
+                )*
+            {
+                type Inputs = (#(I~i,)*);
+                type Ok = Ok;
+                type Err = Err;
+                type Future = Fut;
+                fn run(self, (#(v~i,)*): Self::Inputs) -> Self::Future {
+                    (self.function)(#(v~i,)*)
+                }
+            }
+        });
+    };
 }
 
-impl<'a, Fn, Ok, Err, Fut, I0> TryTask<'a> for FnOnceTask<Fn, Ok, Err, Fut, (I0,)>
-where
-    Fn: FnOnce(I0) -> Fut,
-    Ok: IntoAny,
-    Err: 'a,
-    Fut: Future<Output = Result<Ok, Err>> + Send + 'a,
-    I0: IntoAny,
-{
-    type Inputs = (I0,);
-    type Ok = Ok;
-    type Err = Err;
-    type Future = Fut;
-    fn run(self, (i0,): Self::Inputs) -> Self::Future {
-        (self.function)(i0)
-    }
-}
-
-impl<'a, Fn, Ok, Err, Fut, I0, I1> TryTask<'a> for FnOnceTask<Fn, Ok, Err, Fut, (I0, I1)>
-where
-    Fn: FnOnce(I0, I1) -> Fut,
-    Ok: IntoAny,
-    Err: 'a,
-    Fut: Future<Output = Result<Ok, Err>> + Send + 'a,
-    I0: IntoAny,
-    I1: IntoAny,
-{
-    type Inputs = (I0, I1);
-    type Ok = Ok;
-    type Err = Err;
-    type Future = Fut;
-    fn run(self, (i0, i1): Self::Inputs) -> Self::Future {
-        (self.function)(i0, i1)
-    }
-}
-
-impl<'a, Fn, Ok, Err, Fut, I0, I1, I2> TryTask<'a> for FnOnceTask<Fn, Ok, Err, Fut, (I0, I1, I2)>
-where
-    Fn: FnOnce(I0, I1, I2) -> Fut,
-    Ok: IntoAny,
-    Err: 'a,
-    Fut: Future<Output = Result<Ok, Err>> + Send + 'a,
-    I0: IntoAny,
-    I1: IntoAny,
-    I2: IntoAny,
-{
-    type Inputs = (I0, I1, I2);
-    type Ok = Ok;
-    type Err = Err;
-    type Future = Fut;
-    fn run(self, (i0, i1, i2): Self::Inputs) -> Self::Future {
-        (self.function)(i0, i1, i2)
-    }
-}
+seq!(N in 0..=12 {
+    task_impl!(N);
+});
 
 mod infallible;
 

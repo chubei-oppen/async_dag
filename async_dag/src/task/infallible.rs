@@ -2,6 +2,7 @@ use super::TryTask;
 use crate::any::IntoAny;
 use futures::future::FutureExt;
 use futures::future::Map;
+use seq_macro::seq;
 use std::any::type_name;
 use std::convert::Infallible;
 use std::future::Future;
@@ -14,48 +15,6 @@ pub trait IntoInfallibleTask<'a, Args, Ok> {
 
     /// The conversion.
     fn into_task(self) -> Self::Task;
-}
-
-impl<'a, Fn, Ok, Fut> IntoInfallibleTask<'a, (), Ok> for Fn
-where
-    Fn: FnOnce() -> Fut + 'a,
-    Ok: IntoAny,
-    Fut: Future<Output = Ok> + Send + 'a,
-{
-    type Task = InfallibleFnOnceTask<Fn, Ok, Fut, ()>;
-
-    fn into_task(self) -> Self::Task {
-        InfallibleFnOnceTask::new(self)
-    }
-}
-
-impl<'a, Fn, Ok, Fut, I0> IntoInfallibleTask<'a, (I0,), Ok> for Fn
-where
-    Fn: FnOnce(I0) -> Fut + 'a,
-    Ok: IntoAny,
-    Fut: Future<Output = Ok> + Send + 'a,
-    I0: IntoAny,
-{
-    type Task = InfallibleFnOnceTask<Fn, Ok, Fut, (I0,)>;
-
-    fn into_task(self) -> Self::Task {
-        InfallibleFnOnceTask::new(self)
-    }
-}
-
-impl<'a, Fn, Ok, Fut, I0, I1> IntoInfallibleTask<'a, (I0, I1), Ok> for Fn
-where
-    Fn: FnOnce(I0, I1) -> Fut + 'a,
-    Ok: IntoAny,
-    Fut: Future<Output = Ok> + Send + 'a,
-    I0: IntoAny,
-    I1: IntoAny,
-{
-    type Task = InfallibleFnOnceTask<Fn, Ok, Fut, (I0, I1)>;
-
-    fn into_task(self) -> Self::Task {
-        InfallibleFnOnceTask::new(self)
-    }
 }
 
 /// A [`Infallible`] [`TryTask`] for types that implement [`FnOnce`].
@@ -87,50 +46,46 @@ impl<Fn, Ok, Fut, Args> std::fmt::Debug for InfallibleFnOnceTask<Fn, Ok, Fut, Ar
     }
 }
 
-impl<'a, Fn, Ok, Fut> TryTask<'a> for InfallibleFnOnceTask<Fn, Ok, Fut, ()>
-where
-    Fn: FnOnce() -> Fut,
-    Ok: IntoAny,
-    Fut: Future<Output = Ok> + Send + 'a,
-{
-    type Inputs = ();
-    type Ok = Ok;
-    type Err = Infallible;
-    type Future = Map<Fut, fn(Ok) -> Result<Ok, Infallible>>;
-    fn run(self, _: Self::Inputs) -> Self::Future {
-        (self.function)().map(Ok)
-    }
+macro_rules! task_impl {
+    ($N:literal) => {
+        seq!(i in 0..$N {
+            impl<'a, Fn, Ok, Fut, #(I~i,)*> IntoInfallibleTask<'a, (#(I~i,)*), Ok> for Fn
+            where
+                Fn: FnOnce(#(I~i,)*) -> Fut + 'a,
+                Ok: IntoAny,
+                Fut: Future<Output = Ok> + Send + 'a,
+                #(
+                    I~i: IntoAny,
+                )*
+            {
+                type Task = InfallibleFnOnceTask<Fn, Ok, Fut, (#(I~i,)*)>;
+
+                fn into_task(self) -> Self::Task {
+                    InfallibleFnOnceTask::new(self)
+                }
+            }
+
+            impl<'a, Fn, Ok, Fut, #(I~i,)*> TryTask<'a> for InfallibleFnOnceTask<Fn, Ok, Fut, (#(I~i,)*)>
+            where
+                Fn: FnOnce(#(I~i,)*) -> Fut,
+                Ok: IntoAny,
+                Fut: Future<Output = Ok> + Send + 'a,
+                #(
+                    I~i: IntoAny,
+                )*
+            {
+                type Inputs = (#(I~i,)*);
+                type Ok = Ok;
+                type Err = Infallible;
+                type Future = Map<Fut, fn(Ok) -> Result<Ok, Infallible>>;
+                fn run(self, (#(v~i,)*): Self::Inputs) -> Self::Future {
+                    (self.function)(#(v~i,)*).map(Ok)
+                }
+            }
+        });
+    };
 }
 
-impl<'a, Fn, Ok, Fut, I0> TryTask<'a> for InfallibleFnOnceTask<Fn, Ok, Fut, (I0,)>
-where
-    Fn: FnOnce(I0) -> Fut,
-    Ok: IntoAny,
-    Fut: Future<Output = Ok> + Send + 'a,
-    I0: IntoAny,
-{
-    type Inputs = (I0,);
-    type Ok = Ok;
-    type Err = Infallible;
-    type Future = Map<Fut, fn(Ok) -> Result<Ok, Infallible>>;
-    fn run(self, (i0,): Self::Inputs) -> Self::Future {
-        (self.function)(i0).map(Ok)
-    }
-}
-
-impl<'a, Fn, Ok, Fut, I0, I1> TryTask<'a> for InfallibleFnOnceTask<Fn, Ok, Fut, (I0, I1)>
-where
-    Fn: FnOnce(I0, I1) -> Fut,
-    Ok: IntoAny,
-    Fut: Future<Output = Ok> + Send + 'a,
-    I0: IntoAny,
-    I1: IntoAny,
-{
-    type Inputs = (I0, I1);
-    type Ok = Ok;
-    type Err = Infallible;
-    type Future = Map<Fut, fn(Ok) -> Result<Ok, Infallible>>;
-    fn run(self, (i0, i1): Self::Inputs) -> Self::Future {
-        (self.function)(i0, i1).map(Ok)
-    }
-}
+seq!(N in 0..=12 {
+    task_impl!(N);
+});

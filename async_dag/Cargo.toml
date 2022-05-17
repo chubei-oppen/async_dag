@@ -1,8 +1,8 @@
 [package]
 name = "async_dag"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
-description = "tools for async_dag"
+description = "An async task scheduling utilitiy."
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/chubei-oppen/async_dag"
 keywords = ["async", "dag", "scheduling"]
